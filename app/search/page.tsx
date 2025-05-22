@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import Chatbot from "@/components/chatbot";
 import {
   Select,
   SelectContent,
@@ -438,75 +439,7 @@ export default function SearchPage() {
               </div>
             </div>
           )}
-          <div className="mt-6 flex justify-center">
-            <Card className="border-blue-100 dark:border-blue-900/50 bg-blue-50 dark:bg-blue-900/20 p-4 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors w-full">
-              <div className="flex items-center gap-3">
-                {!showAIInput ? (
-                  <>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 group-hover:bg-blue-200 transition-colors">
-                      <Sparkles className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">
-                        Need help?
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Try our AI assistant
-                      </p>
-                    </div>
-                    <Button
-                      size="sm"
-                      className="ml-auto hover:bg-blue-700 transition-colors"
-                      onClick={() => setShowAIInput(true)}
-                    >
-                      Ask Assistant
-                    </Button>
-                  </>
-                ) : (
-                  <div className="flex w-full items-center gap-2">
-                    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100">
-                      <Sparkles className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <div className="relative flex-1">
-                      <Input
-                        className="pr-10 focus-visible:ring-blue-500"
-                        placeholder="Ask about documents (try 'Higher Secondary')"
-                        value={aiQuery}
-                        onChange={(e) => setAIQuery(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && handleAISubmit()}
-                        onBlur={(e) => {
-                          if (!e.target.value.trim()) {
-                            setShowAIInput(false);
-                          }
-                        }}
-                        disabled={isSearchingAI}
-                        autoFocus
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className={`absolute right-0 top-0 h-full px-3 ${
-                          aiQuery.length >= 1
-                            ? "text-blue-600"
-                            : "text-gray-400"
-                        } hover:text-blue-600`}
-                        onClick={handleAISubmit}
-                        disabled={isSearchingAI}
-                      >
-                        {isSearchingAI ? (
-                          <span className="animate-pulse">
-                            <Send className="h-4 w-4 text-blue-600" />
-                          </span>
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Card>
-          </div>
+         <Chatbot/>
         </div>
       </main>
     </div>
