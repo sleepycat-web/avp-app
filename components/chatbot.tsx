@@ -23,7 +23,8 @@ type ChatbotProps = {
   initialMessages?: Message[];
   position?: "bottom-right" | "bottom-left";
   initialQuery?: string;
-  initialResults?: any[]; // NEW: Accept initial results
+  initialResults?: any[]; // Accept initial results
+  onResults?: (results: any[]) => void; // NEW: callback for refined results
 };
 
 export default function Chatbot({
@@ -39,8 +40,9 @@ export default function Chatbot({
     },
   ],
   position = "bottom-right",
-  initialQuery, // NEW
-  initialResults = [], // NEW: Accept initial results
+  initialQuery,
+  initialResults = [],
+  onResults, // NEW: callback prop
 }: ChatbotProps) {
   const [isOpen, setIsOpen] = useState(!!initialQuery); // open if initialQuery exists
   const [messages, setMessages] = useState<Message[]>(
@@ -102,7 +104,6 @@ export default function Chatbot({
   const toggleChat = () => {
     setIsOpen(!isOpen);
   };
-
   const handleRefinement = async (userInput: string) => {
     setIsRefining(true);
 
@@ -115,8 +116,18 @@ export default function Chatbot({
       .then((res) => res.json())
       .then((data) => {
         if (data.results && data.results.length > 0) {
+          // If parent provided onResults, send results and close chatbot
+          if (onResults) {
+            onResults(data.results);
+            // Optionally, clear chatbot state if needed
+            setIsRefining(false);
+            return;
+          }
+          // Otherwise show results in chatbot
           const documentTitles = data.results
-            .map((doc: Document) => doc.title || doc.name || "Untitled Document") // Explicitly type 'doc'
+            .map(
+              (doc: Document) => doc.title || doc.name || "Untitled Document"
+            ) // Explicitly type 'doc'
             .join("\n");
 
           setMessages((prev) => [

@@ -20,6 +20,7 @@ const SEARCH_LIMITS = {
 interface SearchResult {
   _id: string | ObjectId; // Allow both string and ObjectId for compatibility
   title?: string;
+  name?: string;          // Add name field
   content?: string;
   categories?: string[];
   keywords?: string[];
@@ -28,6 +29,18 @@ interface SearchResult {
   similarity?: number;
   embedding?: number[]; // Add embedding property
   textScore?: number; // Add textScore property
+  filePath?: string;
+  collection?: string;
+  supabase?: {          // Add supabase field for download URLs
+    url?: string;
+  };
+  aws?: {               // Add aws field as fallback
+    bucket?: string;
+    key?: string;
+    region?: string;
+  };
+  summary?: string;     // Add summary field
+  fileType?: string;    // Add fileType field
 }
 
 interface GeminiEmbeddingResponse {
@@ -154,8 +167,7 @@ async function performDatabaseSearch(db: any, query: string): Promise<SearchResu
           { content: regex }
         ]
       }
-    },
-    {
+    },    {
       $project: {
         title: 1,
         name: 1,  // Ensure name is included
@@ -166,7 +178,11 @@ async function performDatabaseSearch(db: any, query: string): Promise<SearchResu
         createdAt: 1,
         embedding: 1,
         filePath: 1,
-        collection: 1
+        collection: 1,
+        supabase: 1,  // Include supabase field for download URLs
+        aws: 1,       // Include aws field as fallback
+        summary: 1,   // Include summary field
+        fileType: 1   // Include fileType field
       }
     }
   ];
@@ -211,10 +227,10 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
             }
           ]
         }
-      },
-      {
+      },      {
         $project: {
           title: 1,
+          name: 1,      // Include name field
           content: 1,
           categories: 1,
           keywords: 1,
@@ -224,6 +240,9 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
           summary: 1,
           collection: 1,
           filePath: 1,
+          supabase: 1,  // Include supabase field for download URLs
+          aws: 1,       // Include aws field as fallback
+          fileType: 1,  // Include fileType field
           // Calculate text match score
           textScore: {
             $add: [
@@ -350,8 +369,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     
     if (refinedKeywords.length > 0) {
       console.log("🔑 Refined keywords:", refinedKeywords);
-      
-      const keywordResults: SearchResult[] = [];
+        const keywordResults: SearchResult[] = [];
       for (const collection of ALLOWED_COLLECTIONS) {
         const docs = await db.collection(collection)
           .find({ 
@@ -359,6 +377,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
               { keywords: { $in: refinedKeywords } },
               { categories: { $in: refinedKeywords } }
             ]
+          })
+          .project({
+            title: 1,
+            name: 1,
+            content: 1,
+            categories: 1,
+            keywords: 1,
+            department: 1,
+            createdAt: 1,
+            filePath: 1,
+            collection: 1,
+            supabase: 1,
+            aws: 1,
+            summary: 1,
+            fileType: 1
           })
           .limit(SEARCH_LIMITS.INITIAL_RESULTS)
           .toArray();

@@ -16,45 +16,8 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Search,
-  Filter, 
-} from "lucide-react";
+import { Search, Filter } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
-);
-
-const generateDownloadLink = async (filePath: string, collection: string) => {
-  if (!filePath) {
-    return "#";
-  }
-
-  const folderMap: Record<string, string> = {
-    EmploymentNotice: "Employment Notice",
-    NotificationCircular: "Notification&Circular",
-    Tender: "Tender",
-  };
-
-  const folder = folderMap[collection];
-  if (!folder) {
-    return "#";
-  }
-
-  try {
-    const response = supabase.storage.from(folder).getPublicUrl(filePath);
-    if (!response.data || !response.data.publicUrl) {
-      return "#";
-    }
-    return response.data.publicUrl;
-  } catch (error) {
-    console.error("Error generating download link:", error);
-    return "#";
-  }
-};
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -62,23 +25,39 @@ export default function SearchPage() {
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [chatbotQuery, setChatbotQuery] = useState<string>("");
+  // Add a handler to receive results from chatbot refinement
+  const handleChatbotResults = (results: any[]) => {
+    setSearchResults(results);
+    setShowResults(true);
+    setChatbotQuery(""); // Unmount chatbot after showing results
+  };
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       return;
     }
-    
+
     setIsSearching(true);
     setShowResults(false);
-    
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
-      });
-      
-      const data = await res.json();
+      });      const data = await res.json();
+      console.log("API Response:", data); // Log the response received after query
+      console.log("Search Results:", data.results); // Log the actual results array
+      // Log each result to see the structure
+      if (data.results && Array.isArray(data.results)) {
+        data.results.forEach((result: any, index: number) => {
+          console.log(`Result ${index}:`, {
+            name: result.name,
+            supabase: result.supabase,
+            hasSupabaseUrl: !!result.supabase?.url
+          });
+        });
+      }
       setSearchResults(Array.isArray(data.results) ? data.results : []);
       setShowResults(true);
       setChatbotQuery(searchQuery);
@@ -90,26 +69,18 @@ export default function SearchPage() {
       setIsSearching(false);
     }
   };
-
   const getDocumentTitle = (result: any) => {
-    // For debugging
-    console.log("Document data:", { 
-      name: result.name,
-      title: result.title,
-      filePath: result.filePath 
-    });
-
     // Always use the document name from database
     if (result.name) return result.name;
     if (result.title) return result.title;
-    
+
     // If somehow we don't have a name (which shouldn't happen),
     // extract it from filepath as last resort
     if (result.filePath) {
-      const filename = result.filePath.split('/').pop() || '';
+      const filename = result.filePath.split("/").pop() || "";
       return filename.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
     }
-    
+
     // Log error if we reach here (should never happen)
     console.error("Document missing required name field:", result);
     return "Error: Document name not found";
@@ -120,15 +91,17 @@ export default function SearchPage() {
       <MainNav />
       <main className="container mx-auto px-4 py-8">
         <div className="mx-auto max-w-4xl">
+          {" "}
           <div className="mb-8 text-center animate-in fade-in duration-500">
-            <h2 className="mb-2 text-3xl font-bold text-gray-900 dark:text-white">
-              Find Government Documents
-            </h2>
-            <p className="text-gray-600 dark:text-gray-300">
-              Use natural language to search for any government document
-            </p>
+            <div className="break-words">
+              <h2 className="mb-2 text-3xl font-bold text-gray-900 dark:text-white break-words">
+                Find Government Documents
+              </h2>
+              <p className="text-gray-600 dark:text-gray-300 break-words">
+                Use natural language to search for any government document
+              </p>
+            </div>
           </div>
-
           <Card className="mb-8 border-2 border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 overflow-hidden animate-in fade-in duration-700">
             <div className="bg-blue-600 h-1.5 w-full"></div>
             <CardContent className="pt-6">
@@ -166,7 +139,6 @@ export default function SearchPage() {
               </div>
             </CardContent>
           </Card>
-
           {showResults && (
             <div className="grid gap-6 md:grid-cols-[300px_1fr]">
               <div className="order-2 md:order-1">
@@ -240,10 +212,17 @@ export default function SearchPage() {
                       <SelectItem value="title">Sort by Title</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>
-
-                <div className="space-y-4">
-                  {searchResults.map((result: any, index: number) => (
+                </div>                <div className="space-y-4">
+                  {searchResults.map((result: any, index: number) => {
+                    // Debug logging for each result
+                    console.log(`Rendering result ${index}:`, {
+                      name: result.name,
+                      supabase: result.supabase,
+                      hasSupabaseUrl: !!result.supabase?.url,
+                      fullResult: result
+                    });
+                    
+                    return (
                     <Card
                       key={result._id?.$oid || index}
                       className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group"
@@ -253,30 +232,70 @@ export default function SearchPage() {
                           <div className="flex-1 min-w-0">
                             <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words">
                               {getDocumentTitle(result)}
-                            </CardTitle>
+                            </CardTitle>{" "}
                             <div className="mt-2 space-y-1 text-sm text-gray-500">
                               {result.summary && (
-                                <p className="line-clamp-3">
-                                  {result.summary.length > 200 
+                                <p className="line-clamp-3 break-words">
+                                  {result.summary.length > 200
                                     ? result.summary.substring(0, 200) + "..."
-                                    : result.summary
-                                  }
+                                    : result.summary}
                                 </p>
                               )}
-                              <p>Department: {result.department || "Not specified"}</p>
-                              <p>Created At: {result.createdAt ? new Date(result.createdAt).toLocaleDateString() : "Not specified"}</p>
+                              {result.categories &&
+                                result.categories.length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    {result.categories
+                                      .slice(0, 3)
+                                      .map((category: string, idx: number) => (
+                                        <Badge
+                                          key={idx}
+                                          variant="secondary"
+                                          className="text-xs"
+                                        >
+                                          {category}
+                                        </Badge>
+                                      ))}
+                                  </div>
+                                )}
+                              {result.keywords &&
+                                result.keywords.length > 0 && (
+                                  <p className="text-xs text-gray-400 break-words">
+                                    Keywords:{" "}
+                                    {result.keywords.slice(0, 5).join(", ")}
+                                  </p>
+                                )}
+                              <p className="break-words">
+                                Created At:{" "}
+                                {result.createdAt
+                                  ? new Date(
+                                      result.createdAt
+                                    ).toLocaleDateString()
+                                  : "Not specified"}
+                              </p>
+                              {result.fileType && (
+                                <p className="break-words">
+                                  File Type: {result.fileType}
+                                </p>
+                              )}
                             </div>
-                          </div>
-                          <div className="flex-shrink-0">
-                            {result.filePath && result.collection ? (
+                          </div>{" "}                          <div className="flex-shrink-0">
+                            {result.supabase?.url ? (
                               <Button
                                 className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
                                 onClick={async () => {
-                                  const link = await generateDownloadLink(result.filePath, result.collection);
-                                  if (link !== "#") {
-                                    window.open(link, "_blank");
+                                  // Debug log to see what's available
+                                  console.log("Document download data:", {
+                                    supabaseUrl: result.supabase?.url,
+                                    name: result.name,
+                                  });
+
+                                  // Use supabase.url directly
+                                  if (result.supabase?.url) {
+                                    window.open(result.supabase.url, "_blank");
                                   } else {
-                                    alert("Sorry, file download is not available for this document.");
+                                    alert(
+                                      "Sorry, file download is not available for this document."
+                                    );
                                   }
                                 }}
                               >
@@ -290,20 +309,21 @@ export default function SearchPage() {
                               </div>
                             )}
                           </div>
-                        </div>
-                      </CardHeader>
+                        </div>                      </CardHeader>
                     </Card>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             </div>
           )}
-          
-          {chatbotQuery && (
+          {/* Only mount Chatbot if no results are found */}
+          {showResults && searchResults.length === 0 && (
             <Chatbot
               initialQuery={chatbotQuery}
               key={chatbotQuery}
-              initialResults={searchResults} // Pass search results to the chatbot
+              initialResults={searchResults}
+              onResults={handleChatbotResults} // Pass callback for refined results
             />
           )}
         </div>
