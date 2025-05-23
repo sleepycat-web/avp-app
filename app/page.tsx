@@ -18,64 +18,72 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
   Search,
-  Filter,
-  Calendar,
-  Building,
-  FileType,
-  Download,
-  Sparkles,
-  Send,
+  Filter, 
 } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+);
+
+const generateDownloadLink = async (filePath: string, collection: string) => {
+  if (!filePath) {
+    return "#";
+  }
+
+  const folderMap: Record<string, string> = {
+    EmploymentNotice: "Employment Notice",
+    NotificationCircular: "Notification&Circular",
+    Tender: "Tender",
+  };
+
+  const folder = folderMap[collection];
+  if (!folder) {
+    return "#";
+  }
+
+  try {
+    const response = supabase.storage.from(folder).getPublicUrl(filePath);
+    if (!response.data || !response.data.publicUrl) {
+      return "#";
+    }
+    return response.data.publicUrl;
+  } catch (error) {
+    console.error("Error generating download link:", error);
+    return "#";
+  }
+};
+
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [searchAnimation, setSearchAnimation] = useState(false);
-  const [showAIInput, setShowAIInput] = useState(false);
-  const [aiQuery, setAIQuery] = useState("");
-  const [expandedResultId, setExpandedResultId] = useState<number | null>(null);
-  const [isSearchingAI, setIsSearchingAI] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [chatbotQuery, setChatbotQuery] = useState<string>("");
 
-  // NEW: Real search results from API
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [resultsToDisplay, setResultsToDisplay] = useState<any[]>([]);
-
-  // Use AI input if available, otherwise use searchQuery.
-  const displayedQuery = isSearchingAI
-    ? "Loading..."
-    : aiQuery.trim()
-    ? aiQuery
-    : searchQuery;
-
-  // Add animation effect when results load
-  useEffect(() => {
-    if (showResults) {
-      setSearchAnimation(true);
-      const timer = setTimeout(() => setSearchAnimation(false), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [showResults]);
-
-  // Fetch real search results from API
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim()) {
+      return;
+    }
+    
     setIsSearching(true);
     setShowResults(false);
-    setExpandedResultId(null);
+    
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
       });
+      
       const data = await res.json();
-      setSearchResults(data || []); // Update to handle the new response structure
-      setResultsToDisplay(Array.isArray(data.results) ? data.results : []);
+      setSearchResults(Array.isArray(data.results) ? data.results : []);
       setShowResults(true);
-      setChatbotQuery(searchQuery); // Mount chatbot with this query
+      setChatbotQuery(searchQuery);
     } catch (e) {
+      console.error("Error during search:", e);
       setSearchResults([]);
       setShowResults(true);
     } finally {
@@ -83,41 +91,17 @@ export default function SearchPage() {
     }
   };
 
-  const handleAISubmit = () => {
-    if (!aiQuery.trim()) return;
-
-    setIsSearchingAI(true);
-
-    // Simulate API call delay
-    setTimeout(() => {
-      setIsSearchingAI(false);
-
-      // Check if the query contains "Higher Secondary"
-      if (aiQuery.toLowerCase().includes("higher secondary")) {
-        // Set only the Higher Education result to be expanded
-        setExpandedResultId(2);
-
-        // Make sure results are showing
-        setShowResults(true);
-
-        // Scroll to the result
-        setTimeout(() => {
-          const element = document.getElementById("result-2");
-          if (element) {
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-          }
-        }, 300);
-      }
-      setSearchQuery(aiQuery);
-    }, 3000);
+  const getDocumentTitle = (result: any) => {
+    // Use title or name, or extract filename from filePath
+    if (result.title) return result.title;
+    if (result.name && !result.name.includes('.')) return result.name;
+    if (result.filePath) {
+      // Extract filename and remove extension
+      const filename = result.filePath.split('/').pop() || result.filePath;
+      return filename.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
+    }
+    return "Untitled Document";
   };
-
-  // Add a variable to filter results when an AI query triggers a specific result
-  const filteredResultsToDisplay = expandedResultId
-    ? resultsToDisplay.filter(
-        (result) => result._id && result._id.$oid === expandedResultId
-      )
-    : resultsToDisplay;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-gray-950 dark:to-gray-900">
@@ -172,13 +156,7 @@ export default function SearchPage() {
           </Card>
 
           {showResults && (
-            <div
-              className={`grid gap-6 md:grid-cols-[300px_1fr] ${
-                searchAnimation
-                  ? "animate-in fade-in zoom-in-95 duration-300"
-                  : ""
-              }`}
-            >
+            <div className="grid gap-6 md:grid-cols-[300px_1fr]">
               <div className="order-2 md:order-1">
                 <Card className="sticky top-20 border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:border-blue-200 dark:hover:border-blue-800">
                   <CardHeader className="pb-3">
@@ -236,8 +214,7 @@ export default function SearchPage() {
               <div className="order-1 md:order-2">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-medium">
-                    {expandedResultId ? 1 : filteredResultsToDisplay.length}{" "}
-                    results for &quot;{displayedQuery}&quot;
+                    {searchResults.length} results for &quot;{searchQuery}&quot;
                   </h3>
                   <Select defaultValue="relevance">
                     <SelectTrigger className="w-[180px] focus:ring-blue-500">
@@ -254,62 +231,66 @@ export default function SearchPage() {
                 </div>
 
                 <div className="space-y-4">
-                  {Array.isArray(filteredResultsToDisplay) &&
-                    filteredResultsToDisplay.map(
-                      (result: any, index: number) => (
-                        <Card
-                          id={`result-${result._id?.$oid || index}`}
-                          key={result._id?.$oid || index}
-                          className={`border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md \
-                                ${
-                                  expandedResultId ===
-                                  (result._id?.$oid || index)
-                                    ? "shadow-lg border-blue-300 dark:border-blue-700 bg-blue-50 dark:bg-blue-900/30"
-                                    : "hover:border-blue-200 dark:hover:border-blue-800"
-                                }
-                                ${
-                                  expandedResultId !== null &&
-                                  expandedResultId !==
-                                    (result._id?.$oid || index)
-                                    ? "opacity-50"
-                                    : ""
-                                } group`}
-                          style={{ animationDelay: `${index * 100}ms` }}
-                        >
-                          <CardHeader className="pb-2">
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline">
-                                  {result.name || "Untitled Document"}
-                                </CardTitle>
-                                <div className="mt-1 text-sm text-gray-500">
-                                  <p>
-                                    {result.summary || "No summary available."}
-                                  </p>
-                                  <p>Department: {result.department || "-"}</p>
-                                  <p>
-                                    Created At:{" "}
-                                    {result.createdAt
-                                      ? new Date(
-                                          result.createdAt.$date
-                                        ).toLocaleDateString()
-                                      : "-"}
-                                  </p>
-                                </div>
-                              </div>
+                  {searchResults.map((result: any, index: number) => (
+                    <Card
+                      key={result._id?.$oid || index}
+                      className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group"
+                    >
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words">
+                              {getDocumentTitle(result)}
+                            </CardTitle>
+                            <div className="mt-2 space-y-1 text-sm text-gray-500">
+                              {result.summary && (
+                                <p className="line-clamp-3">
+                                  {result.summary.length > 200 
+                                    ? result.summary.substring(0, 200) + "..."
+                                    : result.summary
+                                  }
+                                </p>
+                              )}
+                              <p>Department: {result.department || "Not specified"}</p>
+                              <p>Created At: {result.createdAt ? new Date(result.createdAt).toLocaleDateString() : "Not specified"}</p>
                             </div>
-                          </CardHeader>
-                        </Card>
-                      )
-                    )}
+                          </div>
+                          <div className="flex-shrink-0">
+                            {result.filePath && result.collection ? (
+                              <Button
+                                className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
+                                onClick={async () => {
+                                  const link = await generateDownloadLink(result.filePath, result.collection);
+                                  if (link !== "#") {
+                                    window.open(link, "_blank");
+                                  } else {
+                                    alert("Sorry, file download is not available for this document.");
+                                  }
+                                }}
+                              >
+                                Download
+                              </Button>
+                            ) : (
+                              <div className="h-10 px-4 flex items-center">
+                                <span className="text-gray-400 text-sm italic whitespace-nowrap">
+                                  File not available
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardHeader>
+                    </Card>
+                  ))}
                 </div>
               </div>
             </div>
           )}
+          
           {chatbotQuery && (
             <Chatbot
               initialQuery={chatbotQuery}
-              key={chatbotQuery} // remounts chatbot if query changes
+              key={chatbotQuery}
             />
           )}
         </div>
