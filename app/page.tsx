@@ -40,6 +40,7 @@ export default function SearchPage() {
 
   // NEW: Real search results from API
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [resultsToDisplay, setResultsToDisplay] = useState<any[]>([]);
 
   // Use AI input if available, otherwise use searchQuery.
   const displayedQuery = isSearchingAI
@@ -71,6 +72,7 @@ export default function SearchPage() {
       });
       const data = await res.json();
       setSearchResults(data || []); // Update to handle the new response structure
+      setResultsToDisplay(Array.isArray(data.results) ? data.results : []);
       setShowResults(true);
       setChatbotQuery(searchQuery); // Mount chatbot with this query
     } catch (e) {
@@ -111,11 +113,11 @@ export default function SearchPage() {
   };
 
   // Add a variable to filter results when an AI query triggers a specific result
-  const resultsToDisplay = expandedResultId
-    ? searchResults.filter(
+  const filteredResultsToDisplay = expandedResultId
+    ? resultsToDisplay.filter(
         (result) => result._id && result._id.$oid === expandedResultId
       )
-    : searchResults;
+    : resultsToDisplay;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-gray-950 dark:to-gray-900">
@@ -234,8 +236,8 @@ export default function SearchPage() {
               <div className="order-1 md:order-2">
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-medium">
-                    {expandedResultId ? 1 : resultsToDisplay.length} results for
-                    &quot;{displayedQuery}&quot;
+                    {expandedResultId ? 1 : filteredResultsToDisplay.length}{" "}
+                    results for &quot;{displayedQuery}&quot;
                   </h3>
                   <Select defaultValue="relevance">
                     <SelectTrigger className="w-[180px] focus:ring-blue-500">
@@ -252,11 +254,13 @@ export default function SearchPage() {
                 </div>
 
                 <div className="space-y-4">
-                  {resultsToDisplay.map((result: any, index: number) => (
-                    <Card
-                      id={`result-${result._id?.$oid || index}`}
-                      key={result._id?.$oid || index}
-                      className={`border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md \
+                  {Array.isArray(filteredResultsToDisplay) &&
+                    filteredResultsToDisplay.map(
+                      (result: any, index: number) => (
+                        <Card
+                          id={`result-${result._id?.$oid || index}`}
+                          key={result._id?.$oid || index}
+                          className={`border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md \
                                 ${
                                   expandedResultId ===
                                   (result._id?.$oid || index)
@@ -270,29 +274,34 @@ export default function SearchPage() {
                                     ? "opacity-50"
                                     : ""
                                 } group`}
-                      style={{ animationDelay: `${index * 100}ms` }}
-                    >
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline">
-                              {result.name || "Untitled Document"}
-                            </CardTitle>
-                            <div className="mt-1 text-sm text-gray-500">
-                              <p>{result.summary || "No summary available."}</p>
-                              <p>Department: {result.department || "-"}</p>
-                              <p>
-                                Created At:{" "}
-                                {result.createdAt
-                                  ? new Date(result.createdAt.$date).toLocaleDateString()
-                                  : "-"}
-                              </p>
+                          style={{ animationDelay: `${index * 100}ms` }}
+                        >
+                          <CardHeader className="pb-2">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline">
+                                  {result.name || "Untitled Document"}
+                                </CardTitle>
+                                <div className="mt-1 text-sm text-gray-500">
+                                  <p>
+                                    {result.summary || "No summary available."}
+                                  </p>
+                                  <p>Department: {result.department || "-"}</p>
+                                  <p>
+                                    Created At:{" "}
+                                    {result.createdAt
+                                      ? new Date(
+                                          result.createdAt.$date
+                                        ).toLocaleDateString()
+                                      : "-"}
+                                  </p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </CardHeader>
-                    </Card>
-                  ))}
+                          </CardHeader>
+                        </Card>
+                      )
+                    )}
                 </div>
               </div>
             </div>
