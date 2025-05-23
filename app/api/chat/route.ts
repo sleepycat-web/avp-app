@@ -251,14 +251,18 @@ async function performDatabaseSearch(
   ];
 
   const results: SearchResult[] = [];
-
   for (const collection of ALLOWED_COLLECTIONS) {
     try {
       const docs = await db
         .collection(collection)
         .aggregate(pipeline)
         .toArray();
-      results.push(...docs);
+      // Add collection name to each document
+      const docsWithCollection = docs.map((doc: any) => ({
+        ...doc,
+        collection: collection,
+      }));
+      results.push(...docsWithCollection);
     } catch (error) {
       console.error(`Error searching collection ${collection}:`, error);
       // Continue with other collections
@@ -396,14 +400,18 @@ async function performSemanticSearch(
       },
       { $limit: 100 }, // Initial limit for performance
     ];
-
     const allDocs: SearchResult[] = [];
     for (const collection of ALLOWED_COLLECTIONS) {
       const docs = await db
         .collection(collection)
         .aggregate(pipeline)
         .toArray();
-      allDocs.push(...docs);
+      // Add collection name to each document
+      const docsWithCollection = docs.map((doc: any) => ({
+        ...doc,
+        collection: collection,
+      }));
+      allDocs.push(...docsWithCollection);
     }
 
     if (allDocs.length === 0) {

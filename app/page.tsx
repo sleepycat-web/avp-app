@@ -16,22 +16,27 @@ import { Badge } from "@/components/ui/badge";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Search, Filter } from "lucide-react";
+import { Search, Filter, Loader2 } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [currentSearchQuery, setCurrentSearchQuery] = useState(""); // Store the query that was actually searched
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [filteredResults, setFilteredResults] = useState<any[]>([]);
   const [chatbotQuery, setChatbotQuery] = useState<string>("");
+  const [selectedDocumentType, setSelectedDocumentType] =
+    useState<string>("all");
+  const [sortOrder, setSortOrder] = useState<string>("newest");
+
   // Add a handler to receive results from chatbot refinement
   const handleChatbotResults = (results: any[]) => {
     setSearchResults(results);
     setShowResults(true);
     setChatbotQuery(""); // Unmount chatbot after showing results
   };
-
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       return;
@@ -39,6 +44,7 @@ export default function SearchPage() {
 
     setIsSearching(true);
     setShowResults(false);
+    setCurrentSearchQuery(searchQuery); // Store the search query that's being executed
 
     try {
       const res = await fetch("/api/chat", {
@@ -70,6 +76,33 @@ export default function SearchPage() {
       setIsSearching(false);
     }
   };
+  // Update filtered results when search results, filters, or sort order change
+  useEffect(() => {
+    let filtered = [...searchResults];
+
+    // Apply document type filter
+    if (selectedDocumentType && selectedDocumentType !== "all") {
+      filtered = filtered.filter((result) => {
+        const docType = getDocumentType(result);
+        return docType.toLowerCase() === selectedDocumentType.toLowerCase();
+      });
+    }
+
+    // Apply sorting
+    filtered.sort((a, b) => {
+      const dateA = new Date(a.createdAt || 0);
+      const dateB = new Date(b.createdAt || 0);
+
+      if (sortOrder === "newest") {
+        return dateB.getTime() - dateA.getTime();
+      } else {
+        return dateA.getTime() - dateB.getTime();
+      }
+    });
+
+    setFilteredResults(filtered);
+  }, [searchResults, selectedDocumentType, sortOrder]);
+
   const getDocumentTitle = (result: any) => {
     // Always use the document name from database
     if (result.name) return result.name;
@@ -85,6 +118,49 @@ export default function SearchPage() {
     // Log error if we reach here (should never happen)
     console.error("Document missing required name field:", result);
     return "Error: Document name not found";
+  };
+  const getDocumentType = (result: any) => {
+    // Primary: Use the collection field from database
+    if (result.collection) {
+      const collection = result.collection.toLowerCase();
+      // Map collection names to display names
+      if (collection.includes("employmentnotice")) return "Employment";
+      if (collection.includes("notificationcircular")) return "Circular";
+      if (collection.includes("tender")) return "Tender";
+      if (collection.includes("notice")) return "Notice";
+    }
+
+    // Fallback 1: Check document name or title
+    const title = (result.name || result.title || "").toLowerCase();
+    if (title.includes("tender")) return "Tender";
+    if (title.includes("notice")) return "Notice";
+    if (title.includes("circular")) return "Circular";
+    if (title.includes("employment") || title.includes("job"))
+      return "Employment";
+
+    // Fallback 2: Check categories
+    if (result.categories && Array.isArray(result.categories)) {
+      for (const category of result.categories) {
+        const cat = category.toLowerCase();
+        if (cat.includes("tender")) return "Tender";
+        if (cat.includes("notice")) return "Notice";
+        if (cat.includes("circular")) return "Circular";
+        if (cat.includes("employment") || cat.includes("job"))
+          return "Employment";
+      }
+    }
+
+    // Fallback 3: Check summary
+    if (result.summary) {
+      const summary = result.summary.toLowerCase();
+      if (summary.includes("tender")) return "Tender";
+      if (summary.includes("notice")) return "Notice";
+      if (summary.includes("circular")) return "Circular";
+      if (summary.includes("employment") || summary.includes("job"))
+        return "Employment";
+    }
+
+    return "Document"; // Default fallback
   };
 
   return (
@@ -113,23 +189,21 @@ export default function SearchPage() {
                       <Search className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       <Input
                         className="pl-10 pr-4 py-6 text-lg focus-visible:ring-blue-500 dark:bg-gray-800 dark:border-gray-700"
-                        placeholder="Try 'agricultural subsidy form'"
+                        placeholder="Enter your search query"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && handleSearch()}
                       />
-                    </div>
+                    </div>{" "}
                     <Button
-                      className="h-12 px-6 transition-all hover:bg-blue-700"
+                      className="h-12 px-6 transition-all hover:bg-blue-700 flex items-center justify-center"
                       onClick={handleSearch}
                       disabled={isSearching || !searchQuery.trim()}
                     >
                       {isSearching ? (
                         <>
-                          <span className="animate-pulse">Searching</span>
-                          <span className="animate-pulse">.</span>
-                          <span className="animate-pulse delay-100">.</span>
-                          <span className="animate-pulse delay-200">.</span>
+                          Searching{" "}
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         </>
                       ) : (
                         "Search"
@@ -149,47 +223,51 @@ export default function SearchPage() {
                       <Filter className="h-5 w-5 text-blue-600" />
                       Filters
                     </CardTitle>
-                  </CardHeader>
+                  </CardHeader>{" "}
                   <CardContent>
                     <div className="space-y-6">
                       <div className="space-y-2">
                         <Label className="text-sm font-medium">
                           Document Type
                         </Label>
-                        <Select>
+                        <Select
+                          value={selectedDocumentType}
+                          onValueChange={(value) =>
+                            setSelectedDocumentType(value)
+                          }
+                        >
                           <SelectTrigger className="focus:ring-blue-500">
-                            <SelectValue placeholder="Select Document Type" />
-                          </SelectTrigger>
+                            <SelectValue placeholder="All Types" />
+                          </SelectTrigger>{" "}
                           <SelectContent>
-                            <SelectItem value="tender">Tender</SelectItem>
+                            <SelectItem value="all">All Types</SelectItem>
+                            <SelectItem value="employment">
+                              Employment
+                            </SelectItem>
                             <SelectItem value="circular">Circular</SelectItem>
                             <SelectItem value="notice">Notice</SelectItem>
+                            <SelectItem value="tender">Tender</SelectItem>
+                            <SelectItem value="document">Document</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-medium">
-                            Relevance
-                          </Label>
-                          <span className="text-xs text-gray-500">
-                            70% or higher
-                          </span>
-                        </div>
-                        <Slider
-                          defaultValue={[70]}
-                          max={100}
-                          step={1}
-                          className="[&>span]:bg-blue-600"
-                        />
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        <Switch id="verified" />
-                        <Label htmlFor="verified" className="text-sm">
-                          Show verified documents only
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          Sort by Date
                         </Label>
+                        <Select
+                          value={sortOrder}
+                          onValueChange={(value) => setSortOrder(value)}
+                        >
+                          <SelectTrigger className="focus:ring-blue-500">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="newest">Newest First</SelectItem>
+                            <SelectItem value="oldest">Oldest First</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     </div>
                   </CardContent>
@@ -197,25 +275,16 @@ export default function SearchPage() {
               </div>
 
               <div className="order-1 md:order-2">
+                {" "}
                 <div className="mb-4 flex items-center justify-between">
                   <h3 className="text-lg font-medium">
-                    {searchResults.length} results for &quot;{searchQuery}&quot;
+                    {filteredResults.length} results for &quot;
+                    {currentSearchQuery}
+                    &quot;
                   </h3>
-                  <Select defaultValue="relevance">
-                    <SelectTrigger className="w-[180px] focus:ring-blue-500">
-                      <SelectValue placeholder="Sort by" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="relevance">
-                        Sort by Relevance
-                      </SelectItem>
-                      <SelectItem value="date">Sort by Date</SelectItem>
-                      <SelectItem value="title">Sort by Title</SelectItem>
-                    </SelectContent>
-                  </Select>
                 </div>{" "}
                 <div className="space-y-4">
-                  {searchResults.map((result: any, index: number) => {
+                  {filteredResults.map((result: any, index: number) => {
                     // Debug logging for each result
                     console.log(`Rendering result ${index}:`, {
                       name: result.name,
@@ -227,19 +296,22 @@ export default function SearchPage() {
                     return (
                       <Card
                         key={result._id?.$oid || index}
-                        className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group"
+                        className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group overflow-hidden"
                       >
                         <CardHeader className="pb-2">
-                          {" "}
                           <div className="flex items-start justify-between gap-4">
-                            {" "}
-                            <div className="flex-1 min-w-0">
-                              <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words leading-relaxed whitespace-normal overflow-wrap-anywhere mb-3">
+                            <div className="flex-1 min-w-0 overflow-hidden">
+                              <div className="flex items-start gap-2 mb-2">
+                                <Badge className="bg-blue-100   text-black text-xs flex-shrink-0">
+                                  {getDocumentType(result)}
+                                </Badge>
+                              </div>{" "}
+                              <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words leading-relaxed whitespace-normal mb-3 overflow-x-auto max-w-full">
                                 {getDocumentTitle(result)}
                               </CardTitle>
-                              <div className="mt-2 space-y-1 text-sm text-gray-500">
+                              <div className="mt-2 space-y-2 text-sm text-gray-500">
                                 {result.summary && (
-                                  <p className="line-clamp-3 break-words">
+                                  <p className="line-clamp-3 break-words leading-relaxed">
                                     {result.summary.length > 200
                                       ? result.summary.substring(0, 200) + "..."
                                       : result.summary}
@@ -263,7 +335,6 @@ export default function SearchPage() {
                                         )}
                                     </div>
                                   )}
-                               
                                 <p className="break-words">
                                   Created At:{" "}
                                   {result.createdAt
@@ -273,7 +344,7 @@ export default function SearchPage() {
                                     : "Not specified"}
                                 </p>
                               </div>
-                            </div>{" "}
+                            </div>
                             <div className="flex-shrink-0">
                               {result.supabase?.url ? (
                                 <Button
@@ -308,7 +379,7 @@ export default function SearchPage() {
                                 </div>
                               )}
                             </div>
-                          </div>{" "}
+                          </div>
                         </CardHeader>
                       </Card>
                     );
@@ -316,16 +387,22 @@ export default function SearchPage() {
                 </div>
               </div>
             </div>
-          )}
-          {/* Only mount Chatbot if no results are found */}
-          {showResults && searchResults.length === 0 && (
-            <Chatbot
-              initialQuery={chatbotQuery}
-              key={chatbotQuery}
-              initialResults={searchResults}
-              onResults={handleChatbotResults} // Pass callback for refined results
-            />
-          )}
+          )}{" "}
+          {/* Chatbot is always visible, but only auto-opens when no results found */}
+          <Chatbot
+            initialQuery={
+              showResults && searchResults.length === 0 ? chatbotQuery : ""
+            }
+            key={
+              showResults && searchResults.length === 0
+                ? chatbotQuery
+                : "always-visible"
+            }
+            initialResults={
+              showResults && searchResults.length === 0 ? searchResults : []
+            }
+            onResults={handleChatbotResults} // Pass callback for refined results
+          />
         </div>
       </main>
     </div>
