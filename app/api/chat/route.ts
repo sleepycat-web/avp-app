@@ -193,10 +193,24 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
     
-    // Fetch documents with embeddings
+    // Enhanced pipeline with text search across multiple fields
     const pipeline = [
-      { $match: { embedding: { $exists: true, $ne: null } } },
-      { $limit: 100 }, // Limit for performance
+      {
+        $match: {
+          $and: [
+            { embedding: { $exists: true, $ne: null } },
+            {
+              $or: [
+                { categories: { $regex: query, $options: 'i' } },
+                { keywords: { $regex: query, $options: 'i' } },
+                { summary: { $regex: query, $options: 'i' } },
+                { title: { $regex: query, $options: 'i' } },
+                { content: { $regex: query, $options: 'i' } }
+              ]
+            }
+          ]
+        }
+      },
       {
         $project: {
           title: 1,
@@ -205,9 +219,23 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
           keywords: 1,
           department: 1,
           createdAt: 1,
-          embedding: 1
+          embedding: 1,
+          summary: 1,
+          collection: 1,
+          filePath: 1,
+          // Calculate text match score
+          textScore: {
+            $add: [
+              { $cond: [{ $regexMatch: { input: "$title", regex: query, options: "i" } }, 2, 0] },
+              { $cond: [{ $regexMatch: { input: "$content", regex: query, options: "i" } }, 1, 0] },
+              { $cond: [{ $regexMatch: { input: { $concat: "$categories" }, regex: query, options: "i" } }, 1.5, 0] },
+              { $cond: [{ $regexMatch: { input: { $concat: "$keywords" }, regex: query, options: "i" } }, 1.5, 0] },
+              { $cond: [{ $regexMatch: { input: "$summary", regex: query, options: "i" } }, 1.8, 0] }
+            ]
+          }
         }
-      }
+      },
+      { $limit: 100 } // Initial limit for performance
     ];
 
     const allDocs: SearchResult[] = [];
@@ -220,12 +248,21 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
       return [];
     }
 
-    // Calculate similarities and sort
+    // Calculate similarities and combine with text match score
     const resultsWithSimilarity = allDocs
       .map(doc => {
-        if (!doc.embedding) return null; // Ensure embedding exists
-        const similarity = cosineSimilarity(queryEmbedding, doc.embedding as number[]); // Cast embedding to number[]
-        return { ...doc, similarity };
+        if (!doc.embedding) return null;
+        
+        const semanticSimilarity = cosineSimilarity(queryEmbedding, doc.embedding as number[]);
+        // Combine semantic similarity with text match score
+        const combinedScore = (semanticSimilarity * 0.7) + (doc.textScore * 0.3);
+        
+        return { 
+          ...doc, 
+          similarity: combinedScore,
+          semanticScore: semanticSimilarity,
+          textMatchScore: doc.textScore 
+        };
       })
       .filter((doc): doc is SearchResult & { similarity: number } => 
         doc !== null && doc.similarity! >= SEARCH_LIMITS.SIMILARITY_THRESHOLD
@@ -233,7 +270,7 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, SEARCH_LIMITS.SEMANTIC_RESULTS);
 
-    console.log(`🎯 Found ${resultsWithSimilarity.length} semantic matches`);
+    console.log(`🎯 Found ${resultsWithSimilarity.length} semantic matches with enhanced scoring`);
     return resultsWithSimilarity;
     
   } catch (error) {
