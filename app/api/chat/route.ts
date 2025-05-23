@@ -27,6 +27,7 @@ interface SearchResult {
   createdAt?: Date | string | null;
   similarity?: number;
   embedding?: number[]; // Add embedding property
+  textScore?: number; // Add textScore property
 }
 
 interface GeminiEmbeddingResponse {
@@ -255,7 +256,7 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
         
         const semanticSimilarity = cosineSimilarity(queryEmbedding, doc.embedding as number[]);
         // Combine semantic similarity with text match score
-        const combinedScore = (semanticSimilarity * 0.7) + (doc.textScore * 0.3);
+        const combinedScore = (semanticSimilarity * 0.7) + ((doc.textScore ?? 0) * 0.3);
         
         return { 
           ...doc, 
@@ -264,7 +265,7 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
           textMatchScore: doc.textScore 
         };
       })
-      .filter((doc): doc is SearchResult & { similarity: number } => 
+      .filter((doc): doc is SearchResult & { similarity: number; semanticScore: number; textMatchScore: number } => 
         doc !== null && doc.similarity! >= SEARCH_LIMITS.SIMILARITY_THRESHOLD
       )
       .sort((a, b) => b.similarity - a.similarity)
