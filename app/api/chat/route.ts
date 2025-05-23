@@ -92,9 +92,18 @@ async function performSemanticSearch(
   });
 
   // Step 4: Sort by similarity and return top 5 results
+  // Ensure the createdAt field is properly formatted and valid
   const topResults = resultsWithSimilarity
     .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 5);
+    .slice(0, 5)
+    .map((result) => {
+      if (result.createdAt && result.createdAt.$date) {
+        result.createdAt = new Date(result.createdAt.$date).toISOString();
+      } else {
+        result.createdAt = null; // Handle missing or invalid dates
+      }
+      return result;
+    });
 
   console.log("🎯 Top semantic search results:", topResults);
   return topResults;

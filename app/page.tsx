@@ -18,15 +18,29 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
   Search,
-  Filter,
-  Calendar,
-  Building,
-  FileType,
-  Download,
-  Sparkles,
-  Send,
+  Filter, 
 } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
+import { createClient } from "@supabase/supabase-js";
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+);
+
+// Adding console logs to track important stages
+const generateDownloadLink = async (filePath: string) => {
+  console.log("Generating download link for filePath:", filePath);
+  const response = supabase.storage.from("s3-doc-processor").getPublicUrl(filePath);
+  if (!response.data || !response.data.publicUrl) {
+    console.error("Error generating download link: Invalid response", response);
+    return "#";
+  }
+  console.log("Download link generated successfully:", response.data.publicUrl);
+  return response.data.publicUrl;
+};
+
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
@@ -60,7 +74,11 @@ export default function SearchPage() {
 
   // Fetch real search results from API
   const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
+    if (!searchQuery.trim()) {
+      console.log("Search query is empty. Aborting search.");
+      return;
+    }
+    console.log("Initiating search for query:", searchQuery);
     setIsSearching(true);
     setShowResults(false);
     setExpandedResultId(null);
@@ -70,22 +88,30 @@ export default function SearchPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
       });
+      console.log("Search API response received.");
       const data = await res.json();
-      setSearchResults(data || []); // Update to handle the new response structure
+      console.log("Search results:", data);
+      setSearchResults(data || []);
       setResultsToDisplay(Array.isArray(data.results) ? data.results : []);
       setShowResults(true);
-      setChatbotQuery(searchQuery); // Mount chatbot with this query
+      setChatbotQuery(searchQuery);
     } catch (e) {
+      console.error("Error during search:", e);
       setSearchResults([]);
       setShowResults(true);
     } finally {
       setIsSearching(false);
+      console.log("Search process completed.");
     }
   };
 
   const handleAISubmit = () => {
-    if (!aiQuery.trim()) return;
+    if (!aiQuery.trim()) {
+      console.log("AI query is empty. Aborting AI submission.");
+      return;
+    }
 
+    console.log("Submitting AI query:", aiQuery);
     setIsSearchingAI(true);
 
     // Simulate API call delay
@@ -94,6 +120,7 @@ export default function SearchPage() {
 
       // Check if the query contains "Higher Secondary"
       if (aiQuery.toLowerCase().includes("higher secondary")) {
+        console.log("AI query contains 'Higher Secondary'. Expanding specific result.");
         // Set only the Higher Education result to be expanded
         setExpandedResultId(2);
 
@@ -104,11 +131,13 @@ export default function SearchPage() {
         setTimeout(() => {
           const element = document.getElementById("result-2");
           if (element) {
+            console.log("Scrolling to result-2.");
             element.scrollIntoView({ behavior: "smooth", block: "center" });
           }
         }, 300);
       }
       setSearchQuery(aiQuery);
+      console.log("AI query processed successfully.");
     }, 3000);
   };
 
@@ -284,19 +313,23 @@ export default function SearchPage() {
                                 </CardTitle>
                                 <div className="mt-1 text-sm text-gray-500">
                                   <p>
-                                    {result.summary || "No summary available."}
+                                    {result.summary
+                                      ? result.summary.split(" ").slice(0, 100).join(" ") + "..."
+                                      : "No summary available."}
                                   </p>
                                   <p>Department: {result.department || "-"}</p>
-                                  <p>
-                                    Created At:{" "}
-                                    {result.createdAt
-                                      ? new Date(
-                                          result.createdAt.$date
-                                        ).toLocaleDateString()
-                                      : "-"}
-                                  </p>
+                                  <p>Created At: {result.createdAt || "-"}</p>
                                 </div>
                               </div>
+                              <Button
+                                className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700"
+                                onClick={async () => {
+                                  const link = await generateDownloadLink(result.filePath);
+                                  window.open(link, "_blank");
+                                }}
+                              >
+                                Download
+                              </Button>
                             </div>
                           </CardHeader>
                         </Card>
