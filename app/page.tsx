@@ -17,7 +17,6 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import {
-  Mic,
   Search,
   Filter,
   Calendar,
@@ -29,7 +28,6 @@ import {
 } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
 export default function SearchPage() {
-  const [isListening, setIsListening] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
@@ -66,13 +64,13 @@ export default function SearchPage() {
     setShowResults(false);
     setExpandedResultId(null);
     try {
-      const res = await fetch("/api/search", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
       });
       const data = await res.json();
-      setSearchResults(data.results || []);
+      setSearchResults(data || []); // Update to handle the new response structure
       setShowResults(true);
       setChatbotQuery(searchQuery); // Mount chatbot with this query
     } catch (e) {
@@ -81,19 +79,6 @@ export default function SearchPage() {
     } finally {
       setIsSearching(false);
     }
-  };
-
-  const handleVoiceSearch = () => {
-    setIsListening(true);
-    // Simulate voice recognition
-    setTimeout(() => {
-      setIsListening(false);
-      setSearchQuery("scholarship form ");
-      // Auto-search after voice input
-      setTimeout(() => {
-        handleSearch();
-      }, 500);
-    }, 2000);
   };
 
   const handleAISubmit = () => {
@@ -163,24 +148,6 @@ export default function SearchPage() {
                       />
                     </div>
                     <Button
-                      variant="outline"
-                      size="icon"
-                      className={`h-12 w-12 transition-all ${
-                        isListening
-                          ? "bg-red-50 border-red-200"
-                          : "hover:bg-blue-50 hover:border-blue-200"
-                      }`}
-                      onClick={handleVoiceSearch}
-                    >
-                      <Mic
-                        className={`h-5 w-5 ${
-                          isListening
-                            ? "text-red-500 animate-pulse"
-                            : "text-gray-500"
-                        }`}
-                      />
-                    </Button>
-                    <Button
                       className="h-12 px-6 transition-all hover:bg-blue-700"
                       onClick={handleSearch}
                       disabled={isSearching || !searchQuery.trim()}
@@ -197,17 +164,6 @@ export default function SearchPage() {
                       )}
                     </Button>
                   </div>
-
-                  {isListening && (
-                    <div className="absolute left-0 right-0 top-full mt-2 rounded-md bg-white dark:bg-gray-800 p-3 shadow-md dark:shadow-gray-900/40 animate-in fade-in duration-200">
-                      <div className="flex items-center gap-2 justify-center">
-                        <span className="inline-block h-2 w-2 rounded-full bg-red-500 animate-ping"></span>
-                        <p className="text-center text-sm text-gray-600">
-                          Listening... Say what you&apos;re looking for
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </div>
             </CardContent>
@@ -320,73 +276,21 @@ export default function SearchPage() {
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
                             <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline">
-                              {result.name ||
-                                result.title ||
-                                "Untitled Document"}
+                              {result.name || "Untitled Document"}
                             </CardTitle>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                              <div className="flex items-center gap-1">
-                                <Building className="h-3.5 w-3.5" />
-                                <span>{result.department || "-"}</span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <FileType className="h-3.5 w-3.5" />
-                                <span>
-                                  {result.fileType
-                                    ? result.fileType
-                                        .replace("application/", "")
-                                        .toUpperCase()
-                                    : "-"}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-1">
-                                <Calendar className="h-3.5 w-3.5" />
-                                <span>
-                                  {result.createdAt
-                                    ? new Date(
-                                        result.createdAt.$date
-                                      ).toLocaleDateString()
-                                    : "-"}
-                                </span>
-                              </div>
-                              <Badge
-                                variant="outline"
-                                className="bg-green-50 text-green-700 group-hover:bg-green-100 transition-colors"
-                              >
-                                {result.relevance}% Match
-                              </Badge>
+                            <div className="mt-1 text-sm text-gray-500">
+                              <p>{result.summary || "No summary available."}</p>
+                              <p>Department: {result.department || "-"}</p>
+                              <p>
+                                Created At:{" "}
+                                {result.createdAt
+                                  ? new Date(result.createdAt.$date).toLocaleDateString()
+                                  : "-"}
+                              </p>
                             </div>
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="group-hover:bg-blue-50 group-hover:border-blue-200 transition-colors"
-                            // TODO: implement download link
-                          >
-                            <Download className="mr-1 h-3.5 w-3.5" />
-                            Download
-                          </Button>
                         </div>
                       </CardHeader>
-                      <CardContent>
-                        <div className="text-sm text-gray-600">
-                          <div>
-                            {/* Show keywords or categories as snippet */}
-                            {result.keywords && result.keywords.length > 0 && (
-                              <span>
-                                Keywords: {result.keywords.join(", ")}
-                              </span>
-                            )}
-                            {result.categories &&
-                              result.categories.length > 0 && (
-                                <span>
-                                  {" "}
-                                  | Categories: {result.categories.join(", ")}
-                                </span>
-                              )}
-                          </div>
-                        </div>
-                      </CardContent>
                     </Card>
                   ))}
                 </div>
