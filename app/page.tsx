@@ -45,7 +45,8 @@ export default function SearchPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: searchQuery }),
-      });      const data = await res.json();
+      });
+      const data = await res.json();
       console.log("API Response:", data); // Log the response received after query
       console.log("Search Results:", data.results); // Log the actual results array
       // Log each result to see the structure
@@ -54,7 +55,7 @@ export default function SearchPage() {
           console.log(`Result ${index}:`, {
             name: result.name,
             supabase: result.supabase,
-            hasSupabaseUrl: !!result.supabase?.url
+            hasSupabaseUrl: !!result.supabase?.url,
           });
         });
       }
@@ -212,105 +213,104 @@ export default function SearchPage() {
                       <SelectItem value="title">Sort by Title</SelectItem>
                     </SelectContent>
                   </Select>
-                </div>                <div className="space-y-4">
+                </div>{" "}
+                <div className="space-y-4">
                   {searchResults.map((result: any, index: number) => {
                     // Debug logging for each result
                     console.log(`Rendering result ${index}:`, {
                       name: result.name,
                       supabase: result.supabase,
                       hasSupabaseUrl: !!result.supabase?.url,
-                      fullResult: result
+                      fullResult: result,
                     });
-                    
+
                     return (
-                    <Card
-                      key={result._id?.$oid || index}
-                      className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group"
-                    >
-                      <CardHeader className="pb-2">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1 min-w-0">
-                            <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words">
-                              {getDocumentTitle(result)}
-                            </CardTitle>{" "}
-                            <div className="mt-2 space-y-1 text-sm text-gray-500">
-                              {result.summary && (
-                                <p className="line-clamp-3 break-words">
-                                  {result.summary.length > 200
-                                    ? result.summary.substring(0, 200) + "..."
-                                    : result.summary}
-                                </p>
-                              )}
-                              {result.categories &&
-                                result.categories.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-2">
-                                    {result.categories
-                                      .slice(0, 3)
-                                      .map((category: string, idx: number) => (
-                                        <Badge
-                                          key={idx}
-                                          variant="secondary"
-                                          className="text-xs"
-                                        >
-                                          {category}
-                                        </Badge>
-                                      ))}
-                                  </div>
-                                )}
-                              {result.keywords &&
-                                result.keywords.length > 0 && (
-                                  <p className="text-xs text-gray-400 break-words">
-                                    Keywords:{" "}
-                                    {result.keywords.slice(0, 5).join(", ")}
+                      <Card
+                        key={result._id?.$oid || index}
+                        className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group"
+                      >
+                        <CardHeader className="pb-2">
+                          {" "}
+                          <div className="flex items-start justify-between gap-4">
+                            {" "}
+                            <div className="flex-1 min-w-0">
+                              <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words leading-relaxed whitespace-normal overflow-wrap-anywhere mb-3">
+                                {getDocumentTitle(result)}
+                              </CardTitle>
+                              <div className="mt-2 space-y-1 text-sm text-gray-500">
+                                {result.summary && (
+                                  <p className="line-clamp-3 break-words">
+                                    {result.summary.length > 200
+                                      ? result.summary.substring(0, 200) + "..."
+                                      : result.summary}
                                   </p>
                                 )}
-                              <p className="break-words">
-                                Created At:{" "}
-                                {result.createdAt
-                                  ? new Date(
-                                      result.createdAt
-                                    ).toLocaleDateString()
-                                  : "Not specified"}
-                              </p>
-                              {result.fileType && (
+                                {result.categories &&
+                                  result.categories.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {result.categories
+                                        .slice(0, 3)
+                                        .map(
+                                          (category: string, idx: number) => (
+                                            <Badge
+                                              key={idx}
+                                              variant="secondary"
+                                              className="text-xs"
+                                            >
+                                              {category}
+                                            </Badge>
+                                          )
+                                        )}
+                                    </div>
+                                  )}
+                               
                                 <p className="break-words">
-                                  File Type: {result.fileType}
+                                  Created At:{" "}
+                                  {result.createdAt
+                                    ? new Date(
+                                        result.createdAt
+                                      ).toLocaleDateString()
+                                    : "Not specified"}
                                 </p>
+                              </div>
+                            </div>{" "}
+                            <div className="flex-shrink-0">
+                              {result.supabase?.url ? (
+                                <Button
+                                  className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
+                                  onClick={async () => {
+                                    // Debug log to see what's available
+                                    console.log("Document download data:", {
+                                      supabaseUrl: result.supabase?.url,
+                                      name: result.name,
+                                    });
+
+                                    // Use supabase.url directly
+                                    if (result.supabase?.url) {
+                                      window.open(
+                                        result.supabase.url,
+                                        "_blank"
+                                      );
+                                    } else {
+                                      alert(
+                                        "Sorry, file download is not available for this document."
+                                      );
+                                    }
+                                  }}
+                                >
+                                  Download
+                                </Button>
+                              ) : (
+                                <div className="h-10 px-4 flex items-center">
+                                  <span className="text-gray-400 text-sm italic whitespace-nowrap">
+                                    File not available
+                                  </span>
+                                </div>
                               )}
                             </div>
-                          </div>{" "}                          <div className="flex-shrink-0">
-                            {result.supabase?.url ? (
-                              <Button
-                                className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
-                                onClick={async () => {
-                                  // Debug log to see what's available
-                                  console.log("Document download data:", {
-                                    supabaseUrl: result.supabase?.url,
-                                    name: result.name,
-                                  });
-
-                                  // Use supabase.url directly
-                                  if (result.supabase?.url) {
-                                    window.open(result.supabase.url, "_blank");
-                                  } else {
-                                    alert(
-                                      "Sorry, file download is not available for this document."
-                                    );
-                                  }
-                                }}
-                              >
-                                Download
-                              </Button>
-                            ) : (
-                              <div className="h-10 px-4 flex items-center">
-                                <span className="text-gray-400 text-sm italic whitespace-nowrap">
-                                  File not available
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        </div>                      </CardHeader>
-                    </Card>
+                          </div>{" "}
+                        </CardHeader>
+                      </Card>
                     );
                   })}
                 </div>
