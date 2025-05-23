@@ -1,204 +1,366 @@
 import { NextRequest, NextResponse } from "next/server";
-
 import { connectToDatabase } from "@/lib/mongodb";
-import { cosineSimilarity } from "@/lib/utils"; // Import cosine similarity helper
+import { cosineSimilarity } from "@/lib/utils";
+import { ObjectId } from "mongodb"; // Import ObjectId for type compatibility
 
-// Gemini API call (real implementation)
-async function queryGeminiAPI(query: string, docs: any[]) {
-  const GEMINI_API_URL =
-    process.env.GEMINI_API_URL ||
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-  if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API key not set in environment variables.");
-  }
+// Constants
+const ALLOWED_COLLECTIONS = [
+  "EmploymentNotice",
+  "NotificationCircular", 
+  "Tender"
+] as const;
 
-  // Prepare the payload as required by Gemini API
-  const payload = {
-    contents: [
-      { role: "user", parts: [{ text: query }] },
-      { role: "system", parts: [{ text: JSON.stringify(docs) }] },
-    ],
-  };
+const SEARCH_LIMITS = {
+  INITIAL_RESULTS: 20,
+  SEMANTIC_RESULTS: 10,
+  SIMILARITY_THRESHOLD: 0.7
+} as const;
 
-  try {
-    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      throw new Error(`Gemini API error: ${response.statusText}`);
-    }
-    const data = await response.json();
-    // Adjust this based on the actual Gemini API response structure
-    return (
-      data.candidates?.[0]?.content?.parts?.[0]?.text ||
-      "No response from Gemini API."
-    );
-  } catch (error: any) {
-    return `Error calling Gemini API: ${error.message}`;
+// Types
+interface SearchResult {
+  _id: string | ObjectId; // Allow both string and ObjectId for compatibility
+  title?: string;
+  content?: string;
+  categories?: string[];
+  keywords?: string[];
+  department?: string;
+  createdAt?: Date | string | null;
+  similarity?: number;
+  embedding?: number[]; // Add embedding property
+}
+
+interface GeminiEmbeddingResponse {
+  embedding?: number[];
+  values?: number[]; // Alternative field name
+}
+
+// Improved error handling
+class SearchError extends Error {
+  constructor(message: string, public statusCode: number = 500) {
+    super(message);
+    this.name = 'SearchError';
   }
 }
 
-// Function to perform semantic search
-async function performSemanticSearch(
-  query: string,
-  db: any,
-  allowedCollections: string[]
-) {
-  console.log("🤖 Performing semantic search");
-
-  // Step 1: Convert query to embedding using Gemini API
-  const GEMINI_API_URL =
-    process.env.GEMINI_API_URL ||
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:embed";
+// Gemini API with proper error handling and retry logic
+async function callGeminiAPI(endpoint: string, payload: any, retries = 2): Promise<any> {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) {
-    throw new Error("Gemini API key not set in environment variables.");
+    throw new SearchError("Gemini API key not configured", 500);
   }
 
-  const embeddingResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query }),
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(`${endpoint}?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-  if (!embeddingResponse.ok) {
-    throw new Error(`Gemini API error: ${embeddingResponse.statusText}`);
-  }
-
-  const embeddingData = await embeddingResponse.json();
-  const queryEmbedding = embeddingData.embedding; // Adjust based on Gemini API response
-
-  // Step 2: Fetch all documents with embeddings from the database
-  let allDocs: any[] = [];
-  for (const name of allowedCollections) {
-    const docs = await db
-      .collection(name)
-      .find({ embedding: { $exists: true } })
-      .toArray();
-    allDocs = allDocs.concat(docs);
-  }
-
-  // Step 3: Calculate cosine similarity for each document
-  const resultsWithSimilarity = allDocs.map((doc) => {
-    const similarity = cosineSimilarity(queryEmbedding, doc.embedding);
-    return { ...doc, similarity };
-  });
-
-  // Step 4: Sort by similarity and return top 5 results
-  // Ensure the createdAt field is properly formatted and valid
-  const topResults = resultsWithSimilarity
-    .sort((a, b) => b.similarity - a.similarity)
-    .slice(0, 5)
-    .map((result) => {
-      if (result.createdAt && result.createdAt.$date) {
-        result.createdAt = new Date(result.createdAt.$date).toISOString();
-      } else {
-        result.createdAt = null; // Handle missing or invalid dates
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-      return result;
-    });
 
-  console.log("🎯 Top semantic search results:", topResults);
-  return topResults;
+      return await response.json();
+    } catch (error) {
+      console.error(`Gemini API attempt ${attempt + 1} failed:`, error);
+      
+      if (attempt === retries) {
+        throw new SearchError("External search service unavailable", 503);
+      }
+      
+      // Exponential backoff
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+    }
+  }
+}
+
+// Generate embeddings using correct Gemini API
+async function generateEmbedding(text: string): Promise<number[]> {
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
+  
+  const payload = {
+    model: "models/text-embedding-004",
+    content: {
+      parts: [{ text }]
+    }
+  };
+
+  const response = await callGeminiAPI(endpoint, payload);
+  
+  // Handle different possible response structures
+  const embedding = response.embedding?.values || response.embedding || response.values;
+  
+  if (!embedding || !Array.isArray(embedding)) {
+    throw new SearchError("Invalid embedding response from API");
+  }
+  
+  return embedding;
+}
+
+// Refine search terms using Gemini
+async function refineSearchTerms(query: string, sampleDocs: SearchResult[]): Promise<string[]> {
+  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+  
+  // Limit sample docs to avoid token limits
+  const limitedDocs = sampleDocs.slice(0, 10).map(doc => ({
+    title: doc.title,
+    categories: doc.categories,
+    keywords: doc.keywords,
+    department: doc.department
+  }));
+
+  const payload = {
+    contents: [{
+      parts: [{
+        text: `Given this user query: "${query}"
+        
+And these document samples: ${JSON.stringify(limitedDocs)}
+
+Extract 3-5 relevant search keywords that would help find documents related to the query. Return only the keywords as a comma-separated list, no explanations.`
+      }]
+    }]
+  };
+
+  try {
+    const response = await callGeminiAPI(endpoint, payload);
+    const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    
+    return text
+      .split(/[,\n]/)
+      .map((k: string) => k.trim()) // Explicitly type 'k' as string
+      .filter((k: string) => k.length > 2) // Explicitly type 'k' as string
+      .slice(0, 5);
+  } catch (error) {
+    console.error("Failed to refine search terms:", error);
+    return []; // Fallback to empty array
+  }
+}
+
+// Optimized database search with aggregation
+async function performDatabaseSearch(db: any, query: string): Promise<SearchResult[]> {
+  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i"); // Escape special chars
+  
+  const pipeline = [
+    {
+      $match: {
+        $or: [
+          { categories: regex },
+          { keywords: regex },
+          { department: regex },
+          { title: regex },
+          { content: regex }
+        ]
+      }
+    },
+    {
+      $project: {
+        title: 1,
+        name: 1,  // Ensure name is included
+        content: 1,
+        categories: 1,
+        keywords: 1,
+        department: 1,
+        createdAt: 1,
+        embedding: 1,
+        filePath: 1,
+        collection: 1
+      }
+    }
+  ];
+
+  const results: SearchResult[] = [];
+  
+  for (const collection of ALLOWED_COLLECTIONS) {
+    try {
+      const docs = await db.collection(collection).aggregate(pipeline).toArray();
+      results.push(...docs);
+    } catch (error) {
+      console.error(`Error searching collection ${collection}:`, error);
+      // Continue with other collections
+    }
+  }
+
+  return results;
+}
+
+// Semantic search implementation
+async function performSemanticSearch(db: any, query: string): Promise<SearchResult[]> {
+  try {
+    console.log("🔍 Performing semantic search");
+    
+    // Generate query embedding
+    const queryEmbedding = await generateEmbedding(query);
+    
+    // Fetch documents with embeddings
+    const pipeline = [
+      { $match: { embedding: { $exists: true, $ne: null } } },
+      { $limit: 100 }, // Limit for performance
+      {
+        $project: {
+          title: 1,
+          content: 1,
+          categories: 1,
+          keywords: 1,
+          department: 1,
+          createdAt: 1,
+          embedding: 1
+        }
+      }
+    ];
+
+    const allDocs: SearchResult[] = [];
+    for (const collection of ALLOWED_COLLECTIONS) {
+      const docs = await db.collection(collection).aggregate(pipeline).toArray();
+      allDocs.push(...docs);
+    }
+
+    if (allDocs.length === 0) {
+      return [];
+    }
+
+    // Calculate similarities and sort
+    const resultsWithSimilarity = allDocs
+      .map(doc => {
+        if (!doc.embedding) return null; // Ensure embedding exists
+        const similarity = cosineSimilarity(queryEmbedding, doc.embedding as number[]); // Cast embedding to number[]
+        return { ...doc, similarity };
+      })
+      .filter((doc): doc is SearchResult & { similarity: number } => 
+        doc !== null && doc.similarity! >= SEARCH_LIMITS.SIMILARITY_THRESHOLD
+      )
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, SEARCH_LIMITS.SEMANTIC_RESULTS);
+
+    console.log(`🎯 Found ${resultsWithSimilarity.length} semantic matches`);
+    return resultsWithSimilarity;
+    
+  } catch (error) {
+    console.error("Semantic search failed:", error);
+    return []; // Fallback gracefully
+  }
+}
+
+// Normalize date fields
+function normalizeResults(results: SearchResult[]): SearchResult[] {
+  return results.map(result => ({
+    ...result,
+    createdAt: result.createdAt && typeof result.createdAt === 'object' && '$date' in result.createdAt
+      ? new Date((result.createdAt as any).$date).toISOString()
+      : result.createdAt || null
+  }));
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log("📩 POST /api/chat received");
-  const { query } = await req.json();
-  console.log("🔎 Query:", query);
-  if (!query) {
-    console.log("⚠️ No query provided");
-    return NextResponse.json(
-      { response: "No query provided." },
-      { status: 400 }
-    );
-  }
-
-  const allowedCollections = [
-    "EmploymentNotice",
-    "NotificationCircular",
-    "Tender",
-  ];
-
-  // Connect to MongoDB and ensure client is closed in a finally block
-  const { db } = await connectToDatabase();
+  
   try {
-    console.log("🗄️ Connected to DB, starting initial search");
-    // Initial search: match query in categories, keywords, or department
-    let initialResults: any[] = [];
-    const regex = new RegExp(query, "i");
-    console.log("🔍 Initial regex:", regex);
-    for (const name of allowedCollections) {
-      const docs = await db
-        .collection(name)
-        .find({
-          $or: [
-            { categories: regex },
-            { keywords: regex },
-            { department: regex },
-          ],
-        })
-        .toArray();
-      initialResults = initialResults.concat(docs);
-    }
-    console.log("✅ Initial results count:", initialResults.length);
-    if (initialResults.length > 0) {
-      console.log("🎉 Returning initial results");
-      return NextResponse.json({ results: initialResults });
-    }
-
-    console.log("ℹ️ No initial results, fetching all docs for refinement");
-    // Fallback: fetch all docs to refine keywords via Gemini
-    let allDocs: any[] = [];
-    for (const name of allowedCollections) {
-      const docs = await db.collection(name).find({}).toArray();
-      allDocs = allDocs.concat(docs);
-    }
-    console.log("🤖 Calling Gemini with", allDocs.length, "docs");
-    const refinements = await queryGeminiAPI(query, allDocs);
-    console.log("🤖 Gemini refinements:", refinements);
-
-    const refinedKeywords = refinements
-      .split(/,| and /)
-      .map((k: string) => k.trim())
-      .filter(Boolean);
-    console.log("🔑 Refined keywords:", refinedKeywords);
-
-    // Search again using refined keywords
-    let fallbackResults: any[] = [];
-    for (const name of allowedCollections) {
-      const docs = await db
-        .collection(name)
-        .find({ keywords: { $in: refinedKeywords } })
-        .toArray();
-      fallbackResults = fallbackResults.concat(docs);
-    }
-    console.log("✅ Fallback results count:", fallbackResults.length);
-
-    if (fallbackResults.length === 0) {
-      console.log("❌ No results found after fallback");
+    const body = await req.json();
+    const { query } = body;
+    
+    if (!query?.trim()) {
       return NextResponse.json(
-        { response: "Sorry, no answer found." },
-        { status: 404 }
+        { error: "Query is required" },
+        { status: 400 }
       );
     }
 
-    console.log("🎉 Returning fallback results");
-    return NextResponse.json({ results: fallbackResults, refinedKeywords });
-  } catch (e) {
-    console.error("🚨 Error querying database:", e);
+    console.log("🔎 Processing query:", query);
+    
+    const { db } = await connectToDatabase();
+    
+    // Step 1: Initial database search
+    console.log("📊 Starting initial database search");
+    const initialResults = await performDatabaseSearch(db, query.trim());
+    
+    if (initialResults.length > 0) {
+      console.log(`✅ Found ${initialResults.length} initial results`);
+      return NextResponse.json({ 
+        results: normalizeResults(initialResults), // Return all initial results
+        searchType: 'keyword'
+      });
+    }
+
+    // Step 2: Semantic search
+    console.log("🧠 Trying semantic search");
+    const semanticResults = await performSemanticSearch(db, query.trim());
+    
+    if (semanticResults.length > 0) {
+      console.log(`✅ Found ${semanticResults.length} semantic results`);
+      return NextResponse.json({ 
+        results: normalizeResults(semanticResults), // Return all semantic results
+        searchType: 'semantic'
+      });
+    }
+
+    // Step 3: Keyword refinement fallback
+    console.log("🔄 Attempting keyword refinement");
+    
+    // Get sample documents for context
+    const sampleDocs: SearchResult[] = [];
+    for (const collection of ALLOWED_COLLECTIONS) {
+      const docs = await db.collection(collection)
+        .find({})
+        .limit(5)
+        .project({ title: 1, categories: 1, keywords: 1, department: 1 })
+        .toArray();
+      sampleDocs.push(...docs.map(doc => ({ ...doc, _id: doc._id.toString() }))); // Convert _id to string
+    }
+
+    const refinedKeywords = await refineSearchTerms(query, sampleDocs);
+    
+    if (refinedKeywords.length > 0) {
+      console.log("🔑 Refined keywords:", refinedKeywords);
+      
+      const keywordResults: SearchResult[] = [];
+      for (const collection of ALLOWED_COLLECTIONS) {
+        const docs = await db.collection(collection)
+          .find({ 
+            $or: [
+              { keywords: { $in: refinedKeywords } },
+              { categories: { $in: refinedKeywords } }
+            ]
+          })
+          .limit(SEARCH_LIMITS.INITIAL_RESULTS)
+          .toArray();
+        keywordResults.push(...docs.map(doc => ({ ...doc, _id: doc._id.toString() }))); // Convert _id to string
+      }
+
+      if (keywordResults.length > 0) {
+        console.log(`✅ Found ${keywordResults.length} results with refined keywords`);
+        return NextResponse.json({ 
+          results: normalizeResults(keywordResults), // Return all refined keyword results
+          searchType: 'refined',
+          refinedKeywords
+        });
+      }
+    }
+
+    console.log("❌ No results found");
+    return NextResponse.json({
+      message: "No relevant documents found for your query",
+      suggestions: [
+        "Try using different keywords",
+        "Check for spelling errors", 
+        "Use more general terms"
+      ]
+    }, { status: 404 });
+
+  } catch (error) {
+    console.error("🚨 Search error:", error);
+    
+    // Don't expose internal errors to client
+    if (error instanceof SearchError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.statusCode }
+      );
+    }
+    
     return NextResponse.json(
-      { response: "Error querying database." },
-      { status: 500 }
+      { error: "Search service temporarily unavailable" },
+      { status: 503 }
     );
-  } finally {
-    console.log("🔒 Skipping client.close(), reusing existing MongoClient");
   }
 }

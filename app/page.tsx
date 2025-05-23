@@ -92,15 +92,27 @@ export default function SearchPage() {
   };
 
   const getDocumentTitle = (result: any) => {
-    // Use title or name, or extract filename from filePath
+    // For debugging
+    console.log("Document data:", { 
+      name: result.name,
+      title: result.title,
+      filePath: result.filePath 
+    });
+
+    // Always use the document name from database
+    if (result.name) return result.name;
     if (result.title) return result.title;
-    if (result.name && !result.name.includes('.')) return result.name;
+    
+    // If somehow we don't have a name (which shouldn't happen),
+    // extract it from filepath as last resort
     if (result.filePath) {
-      // Extract filename and remove extension
-      const filename = result.filePath.split('/').pop() || result.filePath;
+      const filename = result.filePath.split('/').pop() || '';
       return filename.replace(/\.[^/.]+$/, "").replace(/_/g, " ");
     }
-    return "Untitled Document";
+    
+    // Log error if we reach here (should never happen)
+    console.error("Document missing required name field:", result);
+    return "Error: Document name not found";
   };
 
   return (
