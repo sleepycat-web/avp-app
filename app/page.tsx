@@ -23,23 +23,57 @@ import {
 import { MainNav } from "@/components/main-nav";
 import { createClient } from "@supabase/supabase-js";
 
-// Initialize Supabase client
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "",
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
 );
+console.log("🔧 Supabase client initialized:", supabase);
+console.log("📦 Supabase storage object:", supabase.storage);
 
-// Adding console logs to track important stages
-const generateDownloadLink = async (filePath: string) => {
-  console.log("Generating download link for filePath:", filePath);
-  const response = supabase.storage.from("s3-doc-processor").getPublicUrl(filePath);
-  if (!response.data || !response.data.publicUrl) {
-    console.error("Error generating download link: Invalid response", response);
+
+// Adding console logs to track important stages and correcting undefined filePath issue
+const generateDownloadLink = async (filePath: string, collection: string) => {
+  console.log("🔍 Starting generateDownloadLink...");
+  console.log("📂 Provided filePath:", filePath);
+  console.log("📚 Provided collection:", collection);
+
+  if (!filePath) {
+    console.error("❌ filePath is undefined or empty.");
     return "#";
   }
-  console.log("Download link generated successfully:", response.data.publicUrl);
-  return response.data.publicUrl;
+
+  // Map MongoDB collection to Supabase folder
+  const folderMap: Record<string, string> = {
+    EmploymentNotice: "Employment Notice",
+    NotificationCircular: "Notification&Circular",
+    Tender: "Tender",
+  };
+
+  const folder = folderMap[collection];
+  if (!folder) {
+    console.error("❌ Invalid collection name:", collection);
+    return "#";
+  }
+
+  console.log("📁 Resolved Supabase folder:", folder);
+
+  try {
+    const response = supabase.storage.from(folder).getPublicUrl(filePath);
+    console.log("📥 Supabase getPublicUrl response:", response);
+
+    if (!response.data || !response.data.publicUrl) {
+      console.error("❌ No valid publicUrl in response:", response);
+      return "#";
+    }
+
+    console.log("✅ Successfully generated public URL:", response.data.publicUrl);
+    return response.data.publicUrl;
+  } catch (error) {
+    console.error("🔥 Exception while generating download link:", error);
+    return "#";
+  }
 };
+
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -141,12 +175,15 @@ export default function SearchPage() {
     }, 3000);
   };
 
-  // Add a variable to filter results when an AI query triggers a specific result
+  // Adding console logs to track rendering of search results
   const filteredResultsToDisplay = expandedResultId
-    ? resultsToDisplay.filter(
-        (result) => result._id && result._id.$oid === expandedResultId
-      )
+    ? resultsToDisplay.filter((result) => {
+        console.log("Filtering result with ID:", result._id);
+        return result._id && result._id.$oid === expandedResultId;
+      })
     : resultsToDisplay;
+
+  console.log("Filtered results to display:", filteredResultsToDisplay);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-gray-950 dark:to-gray-900">
@@ -321,15 +358,40 @@ export default function SearchPage() {
                                   <p>Created At: {result.createdAt || "-"}</p>
                                 </div>
                               </div>
-                              <Button
-                                className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700"
-                                onClick={async () => {
-                                  const link = await generateDownloadLink(result.filePath);
-                                  window.open(link, "_blank");
-                                }}
-                              >
-                                Download
-                              </Button>
+                              {result.filePath ? (
+                                <Button
+                                  className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700"
+                                  onClick={async () => {
+                                    console.log("🖱️ Download button clicked for result:", result);
+
+                                    if (!result.filePath) {
+                                      console.error("❌ filePath is missing for result:", result);
+                                      return;
+                                    }
+
+                                    if (!result.collection) {
+                                      console.error("❌ collection is missing for result:", result);
+                                      return;
+                                    }
+
+                                    console.log("📂 Attempting to generate download link...");
+                                    const link = await generateDownloadLink(result.filePath, result.collection);
+
+                                    console.log("🔗 Generated link:", link);
+
+                                    if (link === "#") {
+                                      console.error("❌ Failed to generate download link for:", result);
+                                    } else {
+                                      console.log("🌐 Opening link in new tab:", link);
+                                      window.open(link, "_blank");
+                                    }
+                                  }}
+                                >
+                                  Download
+                                </Button>
+                              ) : (
+                                <span className="text-gray-500 text-sm italic">File not available</span>
+                              )}
                             </div>
                           </CardHeader>
                         </Card>
