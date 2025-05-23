@@ -37,30 +37,7 @@ export function MainNav() {
     return pathname === path || pathname?.startsWith(`${path}/`)
   }
 
-  const navItems = [
-    {
-      name: "Home",
-      href: "/",
-      icon: <Home className="h-4 w-4 mr-2" />,
-    },
-    {
-      name: "Search Documents",
-      href: "/search",
-      icon: <FileSearch className="h-4 w-4 mr-2" />,
-    },
-    {
-      name: "Admin Portal",
-      href: "/admin/upload",
-      icon: <Upload className="h-4 w-4 mr-2" />,
-      badge: "Admin",
-    },
-    {
-      name: "Analytics",
-      href: "/analytics",
-      icon: <BarChart3 className="h-4 w-4 mr-2" />,
-      badge: "Admin",
-    },
-  ]
+ 
 
   return (
     <nav
@@ -80,26 +57,7 @@ export function MainNav() {
           {/* Desktop Navigation */}
           {!isMobile && (
             <div className="flex items-center gap-1">
-              {navItems.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  <Button
-                    variant={isActive(item.href) ? "default" : "ghost"}
-                    className={`relative transition-all duration-200 ${isActive(item.href) ? "bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700" : "hover:bg-blue-50 dark:hover:bg-gray-800"}`}
-                    aria-current={isActive(item.href) ? "page" : undefined}
-                  >
-                    {item.icon}
-                    {item.name}
-                    {item.badge && (
-                      <Badge
-                        variant="outline"
-                        className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-[10px] px-1 py-0 absolute -top-1 -right-1"
-                      >
-                        {item.badge}
-                      </Badge>
-                    )}
-                  </Button>
-                </Link>
-              ))}
+            
 
               <ThemeToggle />
 
@@ -150,26 +108,7 @@ export function MainNav() {
         {/* Mobile Navigation */}
         {isMobile && mobileMenuOpen && (
           <div className="mt-4 space-y-1 pb-2 animate-in fade-in duration-200">
-            {navItems.map((item) => (
-              <Link key={item.href} href={item.href} onClick={() => setMobileMenuOpen(false)}>
-                <Button
-                  variant={isActive(item.href) ? "default" : "ghost"}
-                  className={`w-full justify-start transition-all ${isActive(item.href) ? "bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700" : "hover:bg-blue-50 dark:hover:bg-gray-800"}`}
-                  aria-current={isActive(item.href) ? "page" : undefined}
-                >
-                  {item.icon}
-                  {item.name}
-                  {item.badge && (
-                    <Badge
-                      variant="outline"
-                      className="ml-2 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs"
-                    >
-                      {item.badge}
-                    </Badge>
-                  )}
-                </Button>
-              </Link>
-            ))}
+            
             <div className="pt-2 border-t dark:border-gray-700 mt-2">
               <div className="flex items-center px-2 py-1.5">
                 <span className="text-sm mr-2">Theme:</span>
@@ -194,6 +133,7 @@ export function MainNav() {
           </div>
         )}
       </div>
+    
     </nav>
   )
 }

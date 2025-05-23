@@ -1,23 +1,24 @@
-"use client"
+"use client";
 
-import React, { useState, useRef, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { MessageCircle, Send, X } from "lucide-react"
+import React, { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { MessageCircle, Send, X } from "lucide-react";
 
 type Message = {
-  id: string
-  text: string
-  sender: "user" | "bot"
-  timestamp: Date
-}
+  id: string;
+  text: string;
+  sender: "user" | "bot";
+  timestamp: Date;
+};
 
 type ChatbotProps = {
-  botName?: string
-  botAvatar?: string
-  accentColor?: string
-  initialMessages?: Message[]
-  position?: "bottom-right" | "bottom-left"
-}
+  botName?: string;
+  botAvatar?: string;
+  accentColor?: string;
+  initialMessages?: Message[];
+  position?: "bottom-right" | "bottom-left";
+  initialQuery?: string;
+};
 
 export default function Chatbot({
   botName = "Government Assistant",
@@ -32,19 +33,71 @@ export default function Chatbot({
     },
   ],
   position = "bottom-right",
+  initialQuery, // NEW
 }: ChatbotProps) {
-  const [isOpen, setIsOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>(initialMessages)
-  const [inputValue, setInputValue] = useState("")
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const [isOpen, setIsOpen] = useState(!!initialQuery); // open if initialQuery exists
+  const [messages, setMessages] = useState<Message[]>(
+    initialQuery && initialQuery.trim() !== ""
+      ? [
+          {
+            id: "init-user",
+            text: initialQuery,
+            sender: "user",
+            timestamp: new Date(),
+          },
+        ]
+      : initialMessages
+  );
+  const [inputValue, setInputValue] = useState("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // On mount, if initialQuery, send to backend and get response
+  useEffect(() => {
+    if (initialQuery && initialQuery.trim() !== "") {
+      // Immediately send to backend as if user sent it
+      fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: initialQuery }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `init-bot-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 5)}`,
+              text: data.response || "Sorry, no answer found.",
+              sender: "bot",
+              timestamp: new Date(),
+            },
+          ]);
+        })
+        .catch(() => {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `init-bot-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 5)}`,
+              text: "Sorry, there was an error contacting the server.",
+              sender: "bot",
+              timestamp: new Date(),
+            },
+          ]);
+        });
+    }
+    // eslint-disable-next-line
+  }, []);
 
   const toggleChat = () => {
-    setIsOpen(!isOpen)
-  }
+    setIsOpen(!isOpen);
+  };
 
   const handleSendMessage = () => {
-    if (inputValue.trim() === "") return
+    if (inputValue.trim() === "") return;
 
     // Add user message
     const userMessage: Message = {
@@ -52,10 +105,10 @@ export default function Chatbot({
       text: inputValue,
       sender: "user",
       timestamp: new Date(),
-    }
+    };
 
-    setMessages([...messages, userMessage])
-    setInputValue("")
+    setMessages([...messages, userMessage]);
+    setInputValue("");
 
     // Simulate bot response after a short delay
     setTimeout(() => {
@@ -64,67 +117,76 @@ export default function Chatbot({
         text: getBotResponse(inputValue),
         sender: "bot",
         timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, botMessage])
-    }, 1000)
-  }
+      };
+      setMessages((prev) => [...prev, botMessage]);
+    }, 1000);
+  };
 
   const getBotResponse = (message: string): string => {
-    const lowerMessage = message.toLowerCase()
+    const lowerMessage = message.toLowerCase();
 
     if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-      return "Hello. Thank you for contacting our official service desk.\n\nI can assist you with:\n* Information about our services\n* Document submission guidance\n* Application status inquiries"
+      return "Hello. Thank you for contacting our official service desk.\n\nI can assist you with:\n* Information about our services\n* Document submission guidance\n* Application status inquiries";
     } else if (lowerMessage.includes("help")) {
-      return "I'm here to provide official assistance. Please specify what information you're seeking.\n\nCommon inquiries include:\n* Forms and applications\n* Regulatory requirements\n* Deadlines and important dates"
-    } else if (lowerMessage.includes("services") || lowerMessage.includes("features")) {
-      return "Our department provides several essential services:\n\n* Official document processing\n* Regulatory compliance assistance\n* Public information resources\n* Scheduled appointments with relevant officials"
-    } else if (lowerMessage.includes("bye") || lowerMessage.includes("goodbye")) {
-      return "Thank you for using our official assistance service. If you require further information, please don't hesitate to return. Have a good day."
+      return "I'm here to provide official assistance. Please specify what information you're seeking.\n\nCommon inquiries include:\n* Forms and applications\n* Regulatory requirements\n* Deadlines and important dates";
+    } else if (
+      lowerMessage.includes("services") ||
+      lowerMessage.includes("features")
+    ) {
+      return "Our department provides several essential services:\n\n* Official document processing\n* Regulatory compliance assistance\n* Public information resources\n* Scheduled appointments with relevant officials";
+    } else if (
+      lowerMessage.includes("bye") ||
+      lowerMessage.includes("goodbye")
+    ) {
+      return "Thank you for using our official assistance service. If you require further information, please don't hesitate to return. Have a good day.";
     } else {
-      return "Thank you for your inquiry. To provide you with accurate information, could you please specify which department or service you're inquiring about? Our goal is to direct you to the appropriate resources efficiently."
+      return "Thank you for your inquiry. To provide you with accurate information, could you please specify which department or service you're inquiring about? Our goal is to direct you to the appropriate resources efficiently.";
     }
-  }
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      handleSendMessage()
+      handleSendMessage();
     }
-  }
+  };
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages])
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   // Focus input when chat opens
   useEffect(() => {
     if (isOpen) {
-      inputRef.current?.focus()
+      inputRef.current?.focus();
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   // Enhanced markdown parser for formatting
   const parseMarkdown = (text: string) => {
     // Process bold text
-    let processedText = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+    let processedText = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
 
     // Process italic text
-    processedText = processedText.replace(/\*(.*?)\*/g, "<em>$1</em>")
+    processedText = processedText.replace(/\*(.*?)\*/g, "<em>$1</em>");
 
     // Split text into paragraphs (double line breaks)
-    const paragraphs = processedText.split("\n\n")
+    const paragraphs = processedText.split("\n\n");
 
     return paragraphs.map((paragraph, index) => {
       // Handle bullet points
       if (paragraph.startsWith("* ")) {
-        const items = paragraph.split("\n* ")
+        const items = paragraph.split("\n* ");
         return (
           <ul key={`ul-${index}`} className="list-disc pl-5 mb-3">
             {items.map((item, i) => (
-              <li key={i} dangerouslySetInnerHTML={{ __html: item.replace(/^\* /, "") }} />
+              <li
+                key={i}
+                dangerouslySetInnerHTML={{ __html: item.replace(/^\* /, "") }}
+              />
             ))}
           </ul>
-        )
+        );
       }
 
       // Handle line breaks within a paragraph
@@ -138,13 +200,19 @@ export default function Chatbot({
               </React.Fragment>
             ))}
           </p>
-        )
+        );
       }
 
       // Regular paragraph
-      return <p key={`p-${index}`} className="mb-3" dangerouslySetInnerHTML={{ __html: paragraph }} />
-    })
-  }
+      return (
+        <p
+          key={`p-${index}`}
+          className="mb-3"
+          dangerouslySetInnerHTML={{ __html: paragraph }}
+        />
+      );
+    });
+  };
 
   // Generate initials from bot name
   const getInitials = (name: string) => {
@@ -153,22 +221,22 @@ export default function Chatbot({
       .map((n) => n[0])
       .join("")
       .toUpperCase()
-      .substring(0, 2)
-  }
+      .substring(0, 2);
+  };
 
-  const positionClasses = position === "bottom-right" ? "right-4" : "left-4"
+  const positionClasses = position === "bottom-right" ? "right-4" : "left-4";
 
   // Dynamic styles based on accent color
   const dynamicStyles = {
     backgroundColor: accentColor,
     "--accent-color": accentColor,
     "--accent-hover": adjustColorBrightness(accentColor, -15),
-  } as React.CSSProperties
+  } as React.CSSProperties;
 
   // User message style - using a complementary official color
   const userMessageStyle = {
     backgroundColor: "#1a365d", // Deep navy blue for user messages
-  } as React.CSSProperties
+  } as React.CSSProperties;
 
   return (
     <div className={`fixed bottom-4 ${positionClasses} z-50`}>
@@ -181,7 +249,11 @@ export default function Chatbot({
         className="flex items-center justify-center w-14 h-14 rounded-full text-white shadow-lg transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-700"
         aria-label={isOpen ? "Close chat" : "Open chat"}
       >
-        {isOpen ? <X className="w-6 h-6" /> : <MessageCircle className="w-6 h-6" />}
+        {isOpen ? (
+          <X className="w-6 h-6" />
+        ) : (
+          <MessageCircle className="w-6 h-6" />
+        )}
       </motion.button>
 
       {/* Chat window */}
@@ -195,7 +267,10 @@ export default function Chatbot({
             className="absolute bottom-20 right-0 w-80 sm:w-96 h-[28rem] bg-white dark:bg-gray-900 rounded-md shadow-xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-700"
           >
             {/* Chat header */}
-            <div style={dynamicStyles} className="p-4 text-white font-medium flex items-center">
+            <div
+              style={dynamicStyles}
+              className="p-4 text-white font-medium flex items-center"
+            >
               <div className="flex items-center flex-1">
                 {botAvatar ? (
                   <div className="w-8 h-8 rounded-full overflow-hidden mr-3 border-2 border-white/30 shadow-sm">
@@ -227,25 +302,42 @@ export default function Chatbot({
             <div className="flex-1 p-4 overflow-y-auto bg-gray-50 dark:bg-gray-900">
               {messages.map((message, index) => {
                 // Check if this is the first message from this sender in a sequence
-                const isFirstInSequence = index === 0 || messages[index - 1].sender !== message.sender
+                const isFirstInSequence =
+                  index === 0 || messages[index - 1].sender !== message.sender;
                 // Check if this is the last message from this sender in a sequence
-                const isLastInSequence = index === messages.length - 1 || messages[index + 1].sender !== message.sender
+                const isLastInSequence =
+                  index === messages.length - 1 ||
+                  messages[index + 1].sender !== message.sender;
 
                 return (
                   <div
                     key={message.id}
-                    className={`${isFirstInSequence ? "mt-4" : "mt-1"} ${isLastInSequence ? "mb-4" : "mb-1"} flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
+                    className={`${isFirstInSequence ? "mt-4" : "mt-1"} ${
+                      isLastInSequence ? "mb-4" : "mb-1"
+                    } flex ${
+                      message.sender === "user"
+                        ? "justify-end"
+                        : "justify-start"
+                    }`}
                   >
-                    <div className={`max-w-[85%] ${message.sender === "user" ? "order-2" : "order-1"}`}>
+                    <div
+                      className={`max-w-[85%] ${
+                        message.sender === "user" ? "order-2" : "order-1"
+                      }`}
+                    >
                       <div
-                        style={message.sender === "user" ? userMessageStyle : {}}
+                        style={
+                          message.sender === "user" ? userMessageStyle : {}
+                        }
                         className={`p-3.5 rounded-md shadow-sm ${
                           message.sender === "user"
                             ? "text-white rounded-br-none"
                             : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-none border border-gray-100 dark:border-gray-700"
                         }`}
                       >
-                        <div className="prose prose-sm dark:prose-invert">{parseMarkdown(message.text)}</div>
+                        <div className="prose prose-sm dark:prose-invert">
+                          {parseMarkdown(message.text)}
+                        </div>
                       </div>
                       <div
                         className={`text-xs mt-1 ${
@@ -254,11 +346,14 @@ export default function Chatbot({
                             : "text-left text-gray-500 dark:text-gray-400"
                         }`}
                       >
-                        {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {message.timestamp.toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </div>
                     </div>
                   </div>
-                )
+                );
               })}
               <div ref={messagesEndRef} />
             </div>
@@ -289,21 +384,21 @@ export default function Chatbot({
         )}
       </AnimatePresence>
     </div>
-  )
+  );
 }
 
 // Helper function to adjust color brightness
 function adjustColorBrightness(hex: string, percent: number) {
   // Convert hex to RGB
-  let r = Number.parseInt(hex.substring(1, 3), 16)
-  let g = Number.parseInt(hex.substring(3, 5), 16)
-  let b = Number.parseInt(hex.substring(5, 7), 16)
+  let r = Number.parseInt(hex.substring(1, 3), 16);
+  let g = Number.parseInt(hex.substring(3, 5), 16);
+  let b = Number.parseInt(hex.substring(5, 7), 16);
 
   // Adjust brightness
-  r = Math.max(0, Math.min(255, r + percent))
-  g = Math.max(0, Math.min(255, g + percent))
-  b = Math.max(0, Math.min(255, b + percent))
+  r = Math.max(0, Math.min(255, r + percent));
+  g = Math.max(0, Math.min(255, g + percent));
+  b = Math.max(0, Math.min(255, b + percent));
 
   // Convert back to hex
-  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 }
