@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { connectToDatabase } from "@/lib/mongodb";
+import { cosineSimilarity } from "@/lib/utils"; // Import cosine similarity helper
 
 // Gemini API call (real implementation)
 async function queryGeminiAPI(query: string, docs: any[]) {
@@ -40,6 +41,63 @@ async function queryGeminiAPI(query: string, docs: any[]) {
   } catch (error: any) {
     return `Error calling Gemini API: ${error.message}`;
   }
+}
+
+// Function to perform semantic search
+async function performSemanticSearch(
+  query: string,
+  db: any,
+  allowedCollections: string[]
+) {
+  console.log("🤖 Performing semantic search");
+
+  // Step 1: Convert query to embedding using Gemini API
+  const GEMINI_API_URL =
+    process.env.GEMINI_API_URL ||
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:embed";
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) {
+    throw new Error("Gemini API key not set in environment variables.");
+  }
+
+  const embeddingResponse = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ query }),
+  });
+
+  if (!embeddingResponse.ok) {
+    throw new Error(`Gemini API error: ${embeddingResponse.statusText}`);
+  }
+
+  const embeddingData = await embeddingResponse.json();
+  const queryEmbedding = embeddingData.embedding; // Adjust based on Gemini API response
+
+  // Step 2: Fetch all documents with embeddings from the database
+  let allDocs: any[] = [];
+  for (const name of allowedCollections) {
+    const docs = await db
+      .collection(name)
+      .find({ embedding: { $exists: true } })
+      .toArray();
+    allDocs = allDocs.concat(docs);
+  }
+
+  // Step 3: Calculate cosine similarity for each document
+  const resultsWithSimilarity = allDocs.map((doc) => {
+    const similarity = cosineSimilarity(queryEmbedding, doc.embedding);
+    return { ...doc, similarity };
+  });
+
+  // Step 4: Sort by similarity and return top 5 results
+  const topResults = resultsWithSimilarity
+    .sort((a, b) => b.similarity - a.similarity)
+    .slice(0, 5);
+
+  console.log("🎯 Top semantic search results:", topResults);
+  return topResults;
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
