@@ -3,24 +3,32 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { cosineSimilarity } from "@/lib/utils";
 import { ObjectId } from "mongodb"; // Import ObjectId for type compatibility
 
+/**
+ * CONFIGURATION CONSTANTS
+ * These define the allowed collections to search and performance limits
+ */
 // Constants
 const ALLOWED_COLLECTIONS = [
   "EmploymentNotice",
-  "NotificationCircular", 
-  "Tender"
+  "NotificationCircular",
+  "Tender",
 ] as const;
 
 const SEARCH_LIMITS = {
   INITIAL_RESULTS: 20,
   SEMANTIC_RESULTS: 10,
-  SIMILARITY_THRESHOLD: 0.7
+  SIMILARITY_THRESHOLD: 0.7,
 } as const;
 
+/**
+ * TYPE DEFINITIONS
+ * These interfaces define the structure of data we work with
+ */
 // Types
 interface SearchResult {
   _id: string | ObjectId; // Allow both string and ObjectId for compatibility
   title?: string;
-  name?: string;          // Add name field
+  name?: string; // Add name field
   content?: string;
   categories?: string[];
   keywords?: string[];
@@ -31,16 +39,18 @@ interface SearchResult {
   textScore?: number; // Add textScore property
   filePath?: string;
   collection?: string;
-  supabase?: {          // Add supabase field for download URLs
+  supabase?: {
+    // Add supabase field for download URLs
     url?: string;
   };
-  aws?: {               // Add aws field as fallback
+  aws?: {
+    // Add aws field as fallback
     bucket?: string;
     key?: string;
     region?: string;
   };
-  summary?: string;     // Add summary field
-  fileType?: string;    // Add fileType field
+  summary?: string; // Add summary field
+  fileType?: string; // Add fileType field
 }
 
 interface GeminiEmbeddingResponse {
@@ -48,16 +58,31 @@ interface GeminiEmbeddingResponse {
   values?: number[]; // Alternative field name
 }
 
+/**
+ * ERROR HANDLING CLASS
+ * Custom error class for better error management in search operations
+ */
 // Improved error handling
 class SearchError extends Error {
   constructor(message: string, public statusCode: number = 500) {
     super(message);
-    this.name = 'SearchError';
+    this.name = "SearchError";
   }
 }
 
+/**
+ * GEMINI API CALLER WITH RETRY LOGIC
+ * Responsible for: Making API calls to Google's Gemini AI service with automatic retries
+ * - Handles authentication with API key
+ * - Implements exponential backoff retry strategy
+ * - Provides consistent error handling for all Gemini API calls
+ */
 // Gemini API with proper error handling and retry logic
-async function callGeminiAPI(endpoint: string, payload: any, retries = 2): Promise<any> {
+async function callGeminiAPI(
+  endpoint: string,
+  payload: any,
+  retries = 2
+): Promise<any> {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) {
     throw new SearchError("Gemini API key not configured", 500);
@@ -79,68 +104,94 @@ async function callGeminiAPI(endpoint: string, payload: any, retries = 2): Promi
       return await response.json();
     } catch (error) {
       console.error(`Gemini API attempt ${attempt + 1} failed:`, error);
-      
+
       if (attempt === retries) {
         throw new SearchError("External search service unavailable", 503);
       }
-      
+
       // Exponential backoff
-      await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.pow(2, attempt) * 1000)
+      );
     }
   }
 }
 
+/**
+ * EMBEDDING GENERATOR
+ * Responsible for: Converting text into numerical vectors (embeddings) for semantic search
+ * - Uses Google's text-embedding-004 model
+ * - Converts user queries and document content into mathematical representations
+ * - Enables similarity comparisons between different texts
+ */
 // Generate embeddings using correct Gemini API
 async function generateEmbedding(text: string): Promise<number[]> {
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
-  
+  const endpoint =
+    "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent";
+
   const payload = {
     model: "models/text-embedding-004",
     content: {
-      parts: [{ text }]
-    }
+      parts: [{ text }],
+    },
   };
 
   const response = await callGeminiAPI(endpoint, payload);
-  
+
   // Handle different possible response structures
-  const embedding = response.embedding?.values || response.embedding || response.values;
-  
+  const embedding =
+    response.embedding?.values || response.embedding || response.values;
+
   if (!embedding || !Array.isArray(embedding)) {
     throw new SearchError("Invalid embedding response from API");
   }
-  
+
   return embedding;
 }
 
+/**
+ * SEARCH TERM REFINEMENT
+ * Responsible for: Improving search queries using AI to extract better keywords
+ * - Takes user's original query and sample documents as context
+ * - Uses Gemini AI to generate more relevant search terms
+ * - Helps find documents when direct keyword matching fails
+ */
 // Refine search terms using Gemini
-async function refineSearchTerms(query: string, sampleDocs: SearchResult[]): Promise<string[]> {
-  const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
-  
+async function refineSearchTerms(
+  query: string,
+  sampleDocs: SearchResult[]
+): Promise<string[]> {
+  const endpoint =
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+
   // Limit sample docs to avoid token limits
-  const limitedDocs = sampleDocs.slice(0, 10).map(doc => ({
+  const limitedDocs = sampleDocs.slice(0, 10).map((doc) => ({
     title: doc.title,
     categories: doc.categories,
     keywords: doc.keywords,
-    department: doc.department
+    department: doc.department,
   }));
 
   const payload = {
-    contents: [{
-      parts: [{
-        text: `Given this user query: "${query}"
+    contents: [
+      {
+        parts: [
+          {
+            text: `Given this user query: "${query}"
         
 And these document samples: ${JSON.stringify(limitedDocs)}
 
-Extract 3-5 relevant search keywords that would help find documents related to the query. Return only the keywords as a comma-separated list, no explanations.`
-      }]
-    }]
+Extract 3-5 relevant search keywords that would help find documents related to the query. Return only the keywords as a comma-separated list, no explanations.`,
+          },
+        ],
+      },
+    ],
   };
 
   try {
     const response = await callGeminiAPI(endpoint, payload);
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
-    
+
     return text
       .split(/[,\n]/)
       .map((k: string) => k.trim()) // Explicitly type 'k' as string
@@ -152,10 +203,21 @@ Extract 3-5 relevant search keywords that would help find documents related to t
   }
 }
 
+/**
+ * BASIC DATABASE SEARCH (KEYWORD MATCHING)
+ * Responsible for: Finding documents using traditional text matching
+ * - Searches across multiple fields: categories, keywords, department, title, content
+ * - Uses regular expressions for case-insensitive matching
+ * - Fast and reliable for exact keyword matches
+ * - Searches across all allowed collections (EmploymentNotice, NotificationCircular, Tender)
+ */
 // Optimized database search with aggregation
-async function performDatabaseSearch(db: any, query: string): Promise<SearchResult[]> {
-  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "i"); // Escape special chars
-  
+async function performDatabaseSearch(
+  db: any,
+  query: string
+): Promise<SearchResult[]> {
+  const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"); // Escape special chars
+
   const pipeline = [
     {
       $match: {
@@ -164,13 +226,14 @@ async function performDatabaseSearch(db: any, query: string): Promise<SearchResu
           { keywords: regex },
           { department: regex },
           { title: regex },
-          { content: regex }
-        ]
-      }
-    },    {
+          { content: regex },
+        ],
+      },
+    },
+    {
       $project: {
         title: 1,
-        name: 1,  // Ensure name is included
+        name: 1, // Ensure name is included
         content: 1,
         categories: 1,
         keywords: 1,
@@ -179,19 +242,22 @@ async function performDatabaseSearch(db: any, query: string): Promise<SearchResu
         embedding: 1,
         filePath: 1,
         collection: 1,
-        supabase: 1,  // Include supabase field for download URLs
-        aws: 1,       // Include aws field as fallback
-        summary: 1,   // Include summary field
-        fileType: 1   // Include fileType field
-      }
-    }
+        supabase: 1, // Include supabase field for download URLs
+        aws: 1, // Include aws field as fallback
+        summary: 1, // Include summary field
+        fileType: 1, // Include fileType field
+      },
+    },
   ];
 
   const results: SearchResult[] = [];
-  
+
   for (const collection of ALLOWED_COLLECTIONS) {
     try {
-      const docs = await db.collection(collection).aggregate(pipeline).toArray();
+      const docs = await db
+        .collection(collection)
+        .aggregate(pipeline)
+        .toArray();
       results.push(...docs);
     } catch (error) {
       console.error(`Error searching collection ${collection}:`, error);
@@ -202,14 +268,26 @@ async function performDatabaseSearch(db: any, query: string): Promise<SearchResu
   return results;
 }
 
+/**
+ * SEMANTIC SEARCH ENGINE
+ * Responsible for: Finding documents based on meaning rather than exact words
+ * - Converts user query into embedding (numerical representation)
+ * - Compares query embedding with document embeddings using cosine similarity
+ * - Combines semantic similarity (70%) with text matching score (30%)
+ * - Finds documents that are conceptually related even if they don't share exact keywords
+ * - Returns results sorted by combined relevance score
+ */
 // Semantic search implementation
-async function performSemanticSearch(db: any, query: string): Promise<SearchResult[]> {
+async function performSemanticSearch(
+  db: any,
+  query: string
+): Promise<SearchResult[]> {
   try {
     console.log("🔍 Performing semantic search");
-    
+
     // Generate query embedding
     const queryEmbedding = await generateEmbedding(query);
-    
+
     // Enhanced pipeline with text search across multiple fields
     const pipeline = [
       {
@@ -218,19 +296,20 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
             { embedding: { $exists: true, $ne: null } },
             {
               $or: [
-                { categories: { $regex: query, $options: 'i' } },
-                { keywords: { $regex: query, $options: 'i' } },
-                { summary: { $regex: query, $options: 'i' } },
-                { title: { $regex: query, $options: 'i' } },
-                { content: { $regex: query, $options: 'i' } }
-              ]
-            }
-          ]
-        }
-      },      {
+                { categories: { $regex: query, $options: "i" } },
+                { keywords: { $regex: query, $options: "i" } },
+                { summary: { $regex: query, $options: "i" } },
+                { title: { $regex: query, $options: "i" } },
+                { content: { $regex: query, $options: "i" } },
+              ],
+            },
+          ],
+        },
+      },
+      {
         $project: {
           title: 1,
-          name: 1,      // Include name field
+          name: 1, // Include name field
           content: 1,
           categories: 1,
           keywords: 1,
@@ -240,27 +319,90 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
           summary: 1,
           collection: 1,
           filePath: 1,
-          supabase: 1,  // Include supabase field for download URLs
-          aws: 1,       // Include aws field as fallback
-          fileType: 1,  // Include fileType field
+          supabase: 1, // Include supabase field for download URLs
+          aws: 1, // Include aws field as fallback
+          fileType: 1, // Include fileType field
           // Calculate text match score
           textScore: {
             $add: [
-              { $cond: [{ $regexMatch: { input: "$title", regex: query, options: "i" } }, 2, 0] },
-              { $cond: [{ $regexMatch: { input: "$content", regex: query, options: "i" } }, 1, 0] },
-              { $cond: [{ $regexMatch: { input: { $concat: "$categories" }, regex: query, options: "i" } }, 1.5, 0] },
-              { $cond: [{ $regexMatch: { input: { $concat: "$keywords" }, regex: query, options: "i" } }, 1.5, 0] },
-              { $cond: [{ $regexMatch: { input: "$summary", regex: query, options: "i" } }, 1.8, 0] }
-            ]
-          }
-        }
+              {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: "$title",
+                      regex: query,
+                      options: "i",
+                    },
+                  },
+                  2,
+                  0,
+                ],
+              },
+              {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: "$content",
+                      regex: query,
+                      options: "i",
+                    },
+                  },
+                  1,
+                  0,
+                ],
+              },
+              {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: { $concat: "$categories" },
+                      regex: query,
+                      options: "i",
+                    },
+                  },
+                  1.5,
+                  0,
+                ],
+              },
+              {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: { $concat: "$keywords" },
+                      regex: query,
+                      options: "i",
+                    },
+                  },
+                  1.5,
+                  0,
+                ],
+              },
+              {
+                $cond: [
+                  {
+                    $regexMatch: {
+                      input: "$summary",
+                      regex: query,
+                      options: "i",
+                    },
+                  },
+                  1.8,
+                  0,
+                ],
+              },
+            ],
+          },
+        },
       },
-      { $limit: 100 } // Initial limit for performance
+      { $limit: 100 }, // Initial limit for performance
     ];
 
     const allDocs: SearchResult[] = [];
     for (const collection of ALLOWED_COLLECTIONS) {
-      const docs = await db.collection(collection).aggregate(pipeline).toArray();
+      const docs = await db
+        .collection(collection)
+        .aggregate(pipeline)
+        .toArray();
       allDocs.push(...docs);
     }
 
@@ -268,115 +410,177 @@ async function performSemanticSearch(db: any, query: string): Promise<SearchResu
       return [];
     }
 
+    /**
+     * SIMILARITY CALCULATION AND SCORING
+     * This section calculates how similar documents are to the user's query
+     * - Computes cosine similarity between query and document embeddings
+     * - Combines semantic similarity (70%) with text match score (30%)
+     * - Filters results to only include documents above similarity threshold
+     * - Sorts by combined relevance score
+     */
     // Calculate similarities and combine with text match score
     const resultsWithSimilarity = allDocs
-      .map(doc => {
+      .map((doc) => {
         if (!doc.embedding) return null;
-        
-        const semanticSimilarity = cosineSimilarity(queryEmbedding, doc.embedding as number[]);
+
+        const semanticSimilarity = cosineSimilarity(
+          queryEmbedding,
+          doc.embedding as number[]
+        );
         // Combine semantic similarity with text match score
-        const combinedScore = (semanticSimilarity * 0.7) + ((doc.textScore ?? 0) * 0.3);
-        
-        return { 
-          ...doc, 
+        const combinedScore =
+          semanticSimilarity * 0.7 + (doc.textScore ?? 0) * 0.3;
+
+        return {
+          ...doc,
           similarity: combinedScore,
           semanticScore: semanticSimilarity,
-          textMatchScore: doc.textScore 
+          textMatchScore: doc.textScore,
         };
       })
-      .filter((doc): doc is SearchResult & { similarity: number; semanticScore: number; textMatchScore: number } => 
-        doc !== null && doc.similarity! >= SEARCH_LIMITS.SIMILARITY_THRESHOLD
+      .filter(
+        (
+          doc
+        ): doc is SearchResult & {
+          similarity: number;
+          semanticScore: number;
+          textMatchScore: number;
+        } =>
+          doc !== null && doc.similarity! >= SEARCH_LIMITS.SIMILARITY_THRESHOLD
       )
       .sort((a, b) => b.similarity - a.similarity)
       .slice(0, SEARCH_LIMITS.SEMANTIC_RESULTS);
 
-    console.log(`🎯 Found ${resultsWithSimilarity.length} semantic matches with enhanced scoring`);
+    console.log(
+      `🎯 Found ${resultsWithSimilarity.length} semantic matches with enhanced scoring`
+    );
     return resultsWithSimilarity;
-    
   } catch (error) {
     console.error("Semantic search failed:", error);
     return []; // Fallback gracefully
   }
 }
 
+/**
+ * DATA NORMALIZATION
+ * Responsible for: Cleaning and standardizing search results
+ * - Converts MongoDB date objects to ISO strings
+ * - Ensures consistent data format for frontend consumption
+ * - Handles different date formats that might exist in the database
+ */
 // Normalize date fields
 function normalizeResults(results: SearchResult[]): SearchResult[] {
-  return results.map(result => ({
+  return results.map((result) => ({
     ...result,
-    createdAt: result.createdAt && typeof result.createdAt === 'object' && '$date' in result.createdAt
-      ? new Date((result.createdAt as any).$date).toISOString()
-      : result.createdAt || null
+    createdAt:
+      result.createdAt &&
+      typeof result.createdAt === "object" &&
+      "$date" in result.createdAt
+        ? new Date((result.createdAt as any).$date).toISOString()
+        : result.createdAt || null,
   }));
 }
 
+/**
+ * MAIN API ENDPOINT HANDLER
+ * Responsible for: Orchestrating the entire search process
+ * This function implements a 3-tier search strategy:
+ *
+ * TIER 1: Basic keyword search (fastest)
+ * - Direct text matching across document fields
+ * - Returns immediately if matches found
+ *
+ * TIER 2: Semantic search (AI-powered)
+ * - Uses embeddings and cosine similarity
+ * - Finds conceptually related documents
+ * - Only runs if keyword search fails
+ *
+ * TIER 3: Refined keyword search (fallback)
+ * - Uses AI to generate better search terms
+ * - Searches again with AI-suggested keywords
+ * - Last resort when other methods fail
+ */
 export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log("📩 POST /api/chat received");
-  
+
   try {
     const body = await req.json();
     const { query } = body;
-    
+
     if (!query?.trim()) {
-      return NextResponse.json(
-        { error: "Query is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Query is required" }, { status: 400 });
     }
 
     console.log("🔎 Processing query:", query);
-    
+
     const { db } = await connectToDatabase();
-    
+
+    /**
+     * SEARCH TIER 1: INITIAL DATABASE SEARCH
+     * Fast keyword-based search using MongoDB text matching
+     */
     // Step 1: Initial database search
     console.log("📊 Starting initial database search");
     const initialResults = await performDatabaseSearch(db, query.trim());
-    
+
     if (initialResults.length > 0) {
       console.log(`✅ Found ${initialResults.length} initial results`);
-      return NextResponse.json({ 
+      return NextResponse.json({
         results: normalizeResults(initialResults), // Return all initial results
-        searchType: 'keyword'
+        searchType: "keyword",
       });
     }
 
+    /**
+     * SEARCH TIER 2: SEMANTIC SEARCH
+     * AI-powered search using document embeddings and similarity matching
+     */
     // Step 2: Semantic search
     console.log("🧠 Trying semantic search");
     const semanticResults = await performSemanticSearch(db, query.trim());
-    
+
     if (semanticResults.length > 0) {
       console.log(`✅ Found ${semanticResults.length} semantic results`);
-      return NextResponse.json({ 
+      return NextResponse.json({
         results: normalizeResults(semanticResults), // Return all semantic results
-        searchType: 'semantic'
+        searchType: "semantic",
       });
     }
 
+    /**
+     * SEARCH TIER 3: KEYWORD REFINEMENT FALLBACK
+     * AI-assisted keyword generation for improved search terms
+     */
     // Step 3: Keyword refinement fallback
     console.log("🔄 Attempting keyword refinement");
-    
+
     // Get sample documents for context
     const sampleDocs: SearchResult[] = [];
     for (const collection of ALLOWED_COLLECTIONS) {
-      const docs = await db.collection(collection)
+      const docs = await db
+        .collection(collection)
         .find({})
         .limit(5)
         .project({ title: 1, categories: 1, keywords: 1, department: 1 })
         .toArray();
-      sampleDocs.push(...docs.map(doc => ({ ...doc, _id: doc._id.toString() }))); // Convert _id to string
+      sampleDocs.push(
+        ...docs.map((doc) => ({ ...doc, _id: doc._id.toString() }))
+      ); // Convert _id to string
     }
 
     const refinedKeywords = await refineSearchTerms(query, sampleDocs);
-    
+
     if (refinedKeywords.length > 0) {
       console.log("🔑 Refined keywords:", refinedKeywords);
-        const keywordResults: SearchResult[] = [];
+      const keywordResults: SearchResult[] = [];
       for (const collection of ALLOWED_COLLECTIONS) {
-        const docs = await db.collection(collection)
-          .find({ 
+        const docs = await db
+          .collection(collection)
+          .find({
             $or: [
               { keywords: { $in: refinedKeywords } },
-              { categories: { $in: refinedKeywords } }
-            ]
+              { categories: { $in: refinedKeywords } },
+            ],
           })
           .project({
             title: 1,
@@ -391,36 +595,46 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             supabase: 1,
             aws: 1,
             summary: 1,
-            fileType: 1
+            fileType: 1,
           })
           .limit(SEARCH_LIMITS.INITIAL_RESULTS)
           .toArray();
-        keywordResults.push(...docs.map(doc => ({ ...doc, _id: doc._id.toString() }))); // Convert _id to string
+        keywordResults.push(
+          ...docs.map((doc) => ({ ...doc, _id: doc._id.toString() }))
+        ); // Convert _id to string
       }
 
       if (keywordResults.length > 0) {
-        console.log(`✅ Found ${keywordResults.length} results with refined keywords`);
-        return NextResponse.json({ 
+        console.log(
+          `✅ Found ${keywordResults.length} results with refined keywords`
+        );
+        return NextResponse.json({
           results: normalizeResults(keywordResults), // Return all refined keyword results
-          searchType: 'refined',
-          refinedKeywords
+          searchType: "refined",
+          refinedKeywords,
         });
       }
     }
 
+    /**
+     * NO RESULTS FOUND
+     * Return helpful suggestions when all search strategies fail
+     */
     console.log("❌ No results found");
-    return NextResponse.json({
-      message: "No relevant documents found for your query",
-      suggestions: [
-        "Try using different keywords",
-        "Check for spelling errors", 
-        "Use more general terms"
-      ]
-    }, { status: 404 });
-
+    return NextResponse.json(
+      {
+        message: "No relevant documents found for your query",
+        suggestions: [
+          "Try using different keywords",
+          "Check for spelling errors",
+          "Use more general terms",
+        ],
+      },
+      { status: 404 }
+    );
   } catch (error) {
     console.error("🚨 Search error:", error);
-    
+
     // Don't expose internal errors to client
     if (error instanceof SearchError) {
       return NextResponse.json(
@@ -428,7 +642,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: error.statusCode }
       );
     }
-    
+
     return NextResponse.json(
       { error: "Search service temporarily unavailable" },
       { status: 503 }
