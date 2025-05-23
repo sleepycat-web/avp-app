@@ -291,6 +291,7 @@ export default function SearchPage() {
             <Chatbot
               initialQuery={chatbotQuery}
               key={chatbotQuery}
+              initialResults={searchResults} // Pass search results to the chatbot
             />
           )}
         </div>

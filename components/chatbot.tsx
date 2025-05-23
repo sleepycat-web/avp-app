@@ -11,6 +11,11 @@ type Message = {
   timestamp: Date;
 };
 
+type Document = {
+  title?: string;
+  name?: string;
+};
+
 type ChatbotProps = {
   botName?: string;
   botAvatar?: string;
@@ -18,6 +23,7 @@ type ChatbotProps = {
   initialMessages?: Message[];
   position?: "bottom-right" | "bottom-left";
   initialQuery?: string;
+  initialResults?: any[]; // NEW: Accept initial results
 };
 
 export default function Chatbot({
@@ -34,6 +40,7 @@ export default function Chatbot({
   ],
   position = "bottom-right",
   initialQuery, // NEW
+  initialResults = [], // NEW: Accept initial results
 }: ChatbotProps) {
   const [isOpen, setIsOpen] = useState(!!initialQuery); // open if initialQuery exists
   const [messages, setMessages] = useState<Message[]>(
@@ -49,51 +56,110 @@ export default function Chatbot({
       : initialMessages
   );
   const [inputValue, setInputValue] = useState("");
+  const [isRefining, setIsRefining] = useState(false); // NEW: Track if refining query
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // On mount, if initialQuery, send to backend and get response
   useEffect(() => {
     if (initialQuery && initialQuery.trim() !== "") {
-      // Immediately send to backend as if user sent it
-      fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: initialQuery }),
-      })
-        .then((res) => res.json())
-        .then((data) => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `init-bot-${Date.now()}-${Math.random()
-                .toString(36)
-                .substr(2, 5)}`,
-              text: data.response || "Sorry, no answer found.",
-              sender: "bot",
-              timestamp: new Date(),
-            },
-          ]);
-        })
-        .catch(() => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `init-bot-${Date.now()}-${Math.random()
-                .toString(36)
-                .substr(2, 5)}`,
-              text: "Sorry, there was an error contacting the server.",
-              sender: "bot",
-              timestamp: new Date(),
-            },
-          ]);
-        });
+      if (initialResults.length > 0) {
+        // Use initial results if available
+        const documentTitles = initialResults
+          .map((doc: Document) => doc.title || doc.name || "Untitled Document") // Explicitly type 'doc'
+          .join("\n");
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `init-bot-${Date.now()}-${Math.random()
+              .toString(36)
+              .substr(2, 5)}`,
+            text: `Found ${initialResults.length} relevant documents:\n\n${documentTitles}`,
+            sender: "bot",
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        // Ask for more details if no initial results
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `init-bot-${Date.now()}-${Math.random()
+              .toString(36)
+              .substr(2, 5)}`,
+            text: "I couldn't find any documents. Could you provide more details, such as the document type, department, or keywords?",
+            sender: "bot",
+            timestamp: new Date(),
+          },
+        ]);
+        setIsRefining(true); // Enable refinement mode
+      }
     }
     // eslint-disable-next-line
-  }, []);
+  }, [initialQuery, initialResults]);
 
   const toggleChat = () => {
     setIsOpen(!isOpen);
+  };
+
+  const handleRefinement = async (userInput: string) => {
+    setIsRefining(true);
+
+    // Simulate a backend call to refine the query
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: userInput }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.results && data.results.length > 0) {
+          const documentTitles = data.results
+            .map((doc: Document) => doc.title || doc.name || "Untitled Document") // Explicitly type 'doc'
+            .join("\n");
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `refined-bot-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 5)}`,
+              text: `Found ${data.results.length} relevant documents:\n\n${documentTitles}`,
+              sender: "bot",
+              timestamp: new Date(),
+            },
+          ]);
+          setIsRefining(false);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `refined-bot-${Date.now()}-${Math.random()
+                .toString(36)
+                .substr(2, 5)}`,
+              text: "I still couldn't find any documents. Could you provide more details, such as the document type, department, or keywords?",
+              sender: "bot",
+              timestamp: new Date(),
+            },
+          ]);
+          setIsRefining(false);
+        }
+      })
+      .catch(() => {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `refined-bot-${Date.now()}-${Math.random()
+              .toString(36)
+              .substr(2, 5)}`,
+            text: "Sorry, there was an error refining your query. Please try again.",
+            sender: "bot",
+            timestamp: new Date(),
+          },
+        ]);
+        setIsRefining(false);
+      });
   };
 
   const handleSendMessage = () => {
@@ -108,18 +174,24 @@ export default function Chatbot({
     };
 
     setMessages([...messages, userMessage]);
+    const userInput = inputValue; // Save input value before clearing
     setInputValue("");
 
-    // Simulate bot response after a short delay
-    setTimeout(() => {
-      const botMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: getBotResponse(inputValue),
-        sender: "bot",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMessage]);
-    }, 1000);
+    if (isRefining) {
+      // If refining, handle refinement
+      handleRefinement(userInput);
+    } else {
+      // Simulate bot response after a short delay
+      setTimeout(() => {
+        const botMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: getBotResponse(userInput),
+          sender: "bot",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+      }, 1000);
+    }
   };
 
   const getBotResponse = (message: string): string => {
