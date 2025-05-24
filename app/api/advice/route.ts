@@ -64,7 +64,16 @@ export async function POST(request: NextRequest) {
       .filter(Boolean);
     // Dedupe and limit to at most 10 suggestions
     suggestions = Array.from(new Set(suggestions)).slice(0, 10);
-    // Build response message
+
+    // If no suggestions, return a fallback message
+    if (suggestions.length === 0) {
+      return NextResponse.json({
+        suggestions: [],
+        message: "No suggestions found for your query.",
+      });
+    }
+
+    // Build formatted message
     const messageText =
       "Here are the suggested queries:\n" +
       suggestions.map((s) => `* ${s}`).join("\n");
