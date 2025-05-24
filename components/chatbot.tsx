@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, Send, X } from "lucide-react";
+import { MessageCircle, Send, X, Loader2 } from "lucide-react";
 import Image from "next/image";
 
 type Message = {
@@ -25,7 +25,8 @@ type ChatbotProps = {
   position?: "bottom-right" | "bottom-left";
   initialQuery?: string;
   initialResults?: Document[]; // Accept initial results
-  onResults?: (results: Document[]) => void; // NEW: callback for refined results
+  onResults?: (results: Document[]) => void; // legacy callback for result arrays
+  onQuery?: (query: string) => void; // NEW: callback to send refined query to parent
 };
 
 export default function Chatbot({
@@ -43,7 +44,8 @@ export default function Chatbot({
   position = "bottom-right",
   initialQuery,
   initialResults = [],
-  onResults, // NEW: callback prop
+  onResults, // legacy callback prop
+  onQuery, // NEW: query callback prop
 }: ChatbotProps) {
   const [isOpen, setIsOpen] = useState(!!initialQuery); // open if initialQuery exists
   const [messages, setMessages] = useState<Message[]>(
@@ -59,6 +61,7 @@ export default function Chatbot({
       : initialMessages
   );
   const [inputValue, setInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const [isRefining, setIsRefining] = useState(false); // NEW: Track if refining query
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -105,76 +108,16 @@ export default function Chatbot({
   const toggleChat = () => {
     setIsOpen(!isOpen);
   };
-  const handleRefinement = async (userInput: string) => {
-    setIsRefining(true);
-
-    // Simulate a backend call to refine the query
-    fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query: userInput }),
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.results && data.results.length > 0) {
-          // If parent provided onResults, send results and close chatbot
-          if (onResults) {
-            onResults(data.results);
-            // Optionally, clear chatbot state if needed
-            setIsRefining(false);
-            return;
-          }
-          // Otherwise show results in chatbot
-          const documentTitles = data.results
-            .map(
-              (doc: Document) => doc.title || doc.name || "Untitled Document"
-            ) // Explicitly type 'doc'
-            .join("\n");
-
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `refined-bot-${Date.now()}-${Math.random()
-                .toString(36)
-                .substr(2, 5)}`,
-              text: `Found ${data.results.length} relevant documents:\n\n${documentTitles}`,
-              sender: "bot",
-              timestamp: new Date(),
-            },
-          ]);
-          setIsRefining(false);
-        } else {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `refined-bot-${Date.now()}-${Math.random()
-                .toString(36)
-                .substr(2, 5)}`,
-              text: "I still couldn't find any documents. Could you provide more details, such as the document type, department, or keywords?",
-              sender: "bot",
-              timestamp: new Date(),
-            },
-          ]);
-          setIsRefining(false);
-        }
-      })
-      .catch(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `refined-bot-${Date.now()}-${Math.random()
-              .toString(36)
-              .substr(2, 5)}`,
-            text: "Sorry, there was an error refining your query. Please try again.",
-            sender: "bot",
-            timestamp: new Date(),
-          },
-        ]);
-        setIsRefining(false);
-      });
+  const handleRefinement = (userInput: string) => {
+    // Delegate refinement to parent without calling internal API
+    if (onQuery) {
+      onQuery(userInput);
+    }
+    // Close refinement state
+    setIsRefining(false);
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (inputValue.trim() === "") return;
 
     // Add user message
@@ -190,41 +133,50 @@ export default function Chatbot({
     setInputValue("");
 
     if (isRefining) {
-      // If refining, handle refinement
       handleRefinement(userInput);
-    } else {
-      // Simulate bot response after a short delay
-      setTimeout(() => {
-        const botMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: getBotResponse(userInput),
-          sender: "bot",
-          timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, botMessage]);
-      }, 1000);
+      setIsRefining(false);
     }
-  };
-
-  const getBotResponse = (message: string): string => {
-    const lowerMessage = message.toLowerCase();
-
-    if (lowerMessage.includes("hello") || lowerMessage.includes("hi")) {
-      return "Hello. Thank you for contacting our official service desk.\n\nI can assist you with:\n* Information about our services\n* Document submission guidance\n* Application status inquiries";
-    } else if (lowerMessage.includes("help")) {
-      return "I'm here to provide official assistance. Please specify what information you're seeking.\n\nCommon inquiries include:\n* Forms and applications\n* Regulatory requirements\n* Deadlines and important dates";
-    } else if (
-      lowerMessage.includes("services") ||
-      lowerMessage.includes("features")
-    ) {
-      return "Our department provides several essential services:\n\n* Official document processing\n* Regulatory compliance assistance\n* Public information resources\n* Scheduled appointments with relevant officials";
-    } else if (
-      lowerMessage.includes("bye") ||
-      lowerMessage.includes("goodbye")
-    ) {
-      return "Thank you for using our official assistance service. If you require further information, please don't hesitate to return. Have a good day.";
-    } else {
-      return "Thank you for your inquiry. To provide you with accurate information, could you please specify which department or service you're inquiring about? Our goal is to direct you to the appropriate resources efficiently.";
+    // Always query advice API for suggestions or results
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/advice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: userInput }),
+      });
+      const data = await res.json();
+      let botText = "";
+      if (data.results) {
+        const titles = data.results
+          .map((d: any) => d.title || d.name || "Untitled")
+          .join("\n");
+        botText = `Found ${data.results.length} documents:\n${titles}`;
+        if (onResults) onResults(data.results);
+      } else if (data.suggestions) {
+        botText =
+          data.message +
+          "\n\n" +
+          data.suggestions.map((s: string) => `* ${s}`).join("\n");
+      } else if (data.error) {
+        botText = `Error: ${data.error}`;
+      }
+      const botMessage: Message = {
+        id: Date.now().toString(),
+        text: botText,
+        sender: "bot",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, botMessage]);
+      setIsLoading(false);
+    } catch (e) {
+      const errMsg: Message = {
+        id: Date.now().toString(),
+        text: "Failed to fetch suggestions. Please try again later.",
+        sender: "bot",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errMsg]);
+      setIsLoading(false);
     }
   };
 
@@ -457,13 +409,17 @@ export default function Chatbot({
               />
               <motion.button
                 onClick={handleSendMessage}
-                disabled={inputValue.trim() === ""}
+                disabled={inputValue.trim() === "" || isLoading}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 style={dynamicStyles}
                 className="p-3 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               >
-                <Send className="w-5 h-5" />
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Send className="w-5 h-5" />
+                )}
               </motion.button>
             </div>
           </motion.div>

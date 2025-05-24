@@ -49,20 +49,22 @@ export default function SearchPage() {
     setShowResults(true);
     setChatbotQuery(""); // Unmount chatbot after showing results
   };
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) {
+  // Perform search for given query or current searchQuery
+  const handleSearch = async (queryParam?: string) => {
+    const query = queryParam ?? searchQuery;
+    if (!query.trim()) {
       return;
     }
 
     setIsSearching(true);
     setShowResults(false);
-    setCurrentSearchQuery(searchQuery); // Store the search query that's being executed
+    setCurrentSearchQuery(query); // Store the search query that's being executed
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: searchQuery }),
+        body: JSON.stringify({ query }),
       });
       const data = await res.json();
       console.log("API Response:", data); // Log the response received after query
@@ -79,7 +81,7 @@ export default function SearchPage() {
       }
       setSearchResults(Array.isArray(data.results) ? data.results : []);
       setShowResults(true);
-      setChatbotQuery(searchQuery);
+      setChatbotQuery(query);
     } catch (e) {
       console.error("Error during search:", e);
       setSearchResults([]);
@@ -88,6 +90,13 @@ export default function SearchPage() {
       setIsSearching(false);
     }
   };
+
+  // Handler for Chatbot's query refinement
+  const handleChatbotQuery = (query: string) => {
+    setSearchQuery(query);
+    handleSearch(query);
+  };
+
   // Update filtered results when search results, filters, or sort order change
   useEffect(() => {
     let filtered = [...searchResults];
@@ -209,7 +218,7 @@ export default function SearchPage() {
                     </div>{" "}
                     <Button
                       className="h-12 px-6 transition-all hover:bg-blue-700 flex items-center justify-center"
-                      onClick={handleSearch}
+                      onClick={() => handleSearch()}
                       disabled={isSearching || !searchQuery.trim()}
                     >
                       {isSearching ? (
@@ -413,7 +422,8 @@ export default function SearchPage() {
             initialResults={
               showResults && searchResults.length === 0 ? searchResults : []
             }
-            onResults={handleChatbotResults} // Pass callback for refined results
+            onResults={handleChatbotResults} // legacy: handle direct results
+            onQuery={handleChatbotQuery} // delegate refined queries to parent
           />
         </div>
       </main>
