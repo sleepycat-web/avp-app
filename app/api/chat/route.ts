@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { cosineSimilarity } from "@/lib/utils";
-import { ObjectId } from "mongodb"; // Import ObjectId for type compatibility
+import { ObjectId, Db } from "mongodb"; // Import ObjectId for type compatibility
 
 /**
  * CONFIGURATION CONSTANTS
@@ -53,10 +53,64 @@ interface SearchResult {
   fileType?: string; // Add fileType field
 }
 
+// Gemini API types
 interface GeminiEmbeddingResponse {
-  embedding?: number[];
-  values?: number[]; // Alternative field name
+  embedding?:
+    | {
+        values?: number[];
+      }
+    | number[];
+  values?: number[];
 }
+
+interface GeminiContentResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+}
+
+interface MongoDocument {
+  _id: ObjectId;
+  title?: string;
+  name?: string;
+  content?: string;
+  categories?: string[];
+  keywords?: string[];
+  department?: string;
+  createdAt?: Date | string | null;
+  embedding?: number[];
+  filePath?: string;
+  supabase?: {
+    url?: string;
+  };
+  aws?: {
+    bucket?: string;
+    key?: string;
+    region?: string;
+  };
+  summary?: string;
+  fileType?: string;
+  textScore?: number;
+}
+
+// Pipeline stage types
+interface MatchStage {
+  $match: Record<string, unknown>;
+}
+
+interface ProjectStage {
+  $project: Record<string, unknown>;
+}
+
+interface LimitStage {
+  $limit: number;
+}
+
+type PipelineStage = MatchStage | ProjectStage | LimitStage;
 
 /**
  * ERROR HANDLING CLASS
@@ -80,9 +134,9 @@ class SearchError extends Error {
 // Gemini API with proper error handling and retry logic
 async function callGeminiAPI(
   endpoint: string,
-  payload: any,
+  payload: Record<string, unknown>,
   retries = 2
-): Promise<any> {
+): Promise<GeminiEmbeddingResponse | GeminiContentResponse> {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) {
     throw new SearchError("Gemini API key not configured", 500);
@@ -101,7 +155,9 @@ async function callGeminiAPI(
         throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      return await response.json();
+      return (await response.json()) as
+        | GeminiEmbeddingResponse
+        | GeminiContentResponse;
     } catch (error) {
       console.error(`Gemini API attempt ${attempt + 1} failed:`, error);
 
@@ -115,6 +171,9 @@ async function callGeminiAPI(
       );
     }
   }
+
+  // This should never be reached due to the throw in the loop, but TypeScript needs it
+  throw new SearchError("External search service unavailable", 503);
 }
 
 /**
@@ -136,11 +195,16 @@ async function generateEmbedding(text: string): Promise<number[]> {
     },
   };
 
-  const response = await callGeminiAPI(endpoint, payload);
+  const response = (await callGeminiAPI(
+    endpoint,
+    payload
+  )) as GeminiEmbeddingResponse;
 
   // Handle different possible response structures
   const embedding =
-    response.embedding?.values || response.embedding || response.values;
+    (response.embedding as { values?: number[] })?.values ||
+    (response.embedding as number[]) ||
+    response.values;
 
   if (!embedding || !Array.isArray(embedding)) {
     throw new SearchError("Invalid embedding response from API");
@@ -189,7 +253,10 @@ Extract 3-5 relevant search keywords that would help find documents related to t
   };
 
   try {
-    const response = await callGeminiAPI(endpoint, payload);
+    const response = (await callGeminiAPI(
+      endpoint,
+      payload
+    )) as GeminiContentResponse;
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
     return text
@@ -213,12 +280,12 @@ Extract 3-5 relevant search keywords that would help find documents related to t
  */
 // Optimized database search with aggregation
 async function performDatabaseSearch(
-  db: any,
+  db: Db,
   query: string
 ): Promise<SearchResult[]> {
   const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"); // Escape special chars
 
-  const pipeline = [
+  const pipeline: PipelineStage[] = [
     {
       $match: {
         $or: [
@@ -253,14 +320,15 @@ async function performDatabaseSearch(
   const results: SearchResult[] = [];
   for (const collection of ALLOWED_COLLECTIONS) {
     try {
-      const docs = await db
-        .collection(collection)
-        .aggregate(pipeline)
+      const docs: MongoDocument[] = await db
+        .collection<MongoDocument>(collection)
+        .aggregate<MongoDocument>(pipeline)
         .toArray();
       // Add collection name to each document
-      const docsWithCollection = docs.map((doc: any) => ({
+      const docsWithCollection = docs.map((doc) => ({
         ...doc,
         collection: collection,
+        _id: doc._id.toString(), // Convert ObjectId to string
       }));
       results.push(...docsWithCollection);
     } catch (error) {
@@ -283,7 +351,7 @@ async function performDatabaseSearch(
  */
 // Semantic search implementation
 async function performSemanticSearch(
-  db: any,
+  db: Db,
   query: string
 ): Promise<SearchResult[]> {
   try {
@@ -293,7 +361,7 @@ async function performSemanticSearch(
     const queryEmbedding = await generateEmbedding(query);
 
     // Enhanced pipeline with text search across multiple fields
-    const pipeline = [
+    const pipeline: PipelineStage[] = [
       {
         $match: {
           $and: [
@@ -400,16 +468,18 @@ async function performSemanticSearch(
       },
       { $limit: 100 }, // Initial limit for performance
     ];
+
     const allDocs: SearchResult[] = [];
     for (const collection of ALLOWED_COLLECTIONS) {
-      const docs = await db
-        .collection(collection)
-        .aggregate(pipeline)
+      const docs: MongoDocument[] = await db
+        .collection<MongoDocument>(collection)
+        .aggregate<MongoDocument>(pipeline)
         .toArray();
       // Add collection name to each document
-      const docsWithCollection = docs.map((doc: any) => ({
+      const docsWithCollection = docs.map((doc) => ({
         ...doc,
         collection: collection,
+        _id: doc._id.toString(), // Convert ObjectId to string
       }));
       allDocs.push(...docsWithCollection);
     }
@@ -484,7 +554,7 @@ function normalizeResults(results: SearchResult[]): SearchResult[] {
       result.createdAt &&
       typeof result.createdAt === "object" &&
       "$date" in result.createdAt
-        ? new Date((result.createdAt as any).$date).toISOString()
+        ? new Date((result.createdAt as { $date: string }).$date).toISOString()
         : result.createdAt || null,
   }));
 }
@@ -512,7 +582,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   console.log("📩 POST /api/chat received");
 
   try {
-    const body = await req.json();
+    const body = (await req.json()) as { query?: string };
     const { query } = body;
 
     if (!query?.trim()) {
@@ -566,10 +636,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const sampleDocs: SearchResult[] = [];
     for (const collection of ALLOWED_COLLECTIONS) {
       const docs = await db
-        .collection(collection)
-        .find({})
-        .limit(5)
+        .collection<MongoDocument>(collection)
+        .find<MongoDocument>({})
         .project({ title: 1, categories: 1, keywords: 1, department: 1 })
+        .limit(5)
         .toArray();
       sampleDocs.push(
         ...docs.map((doc) => ({ ...doc, _id: doc._id.toString() }))
@@ -583,8 +653,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const keywordResults: SearchResult[] = [];
       for (const collection of ALLOWED_COLLECTIONS) {
         const docs = await db
-          .collection(collection)
-          .find({
+          .collection<MongoDocument>(collection)
+          .find<MongoDocument>({
             $or: [
               { keywords: { $in: refinedKeywords } },
               { categories: { $in: refinedKeywords } },

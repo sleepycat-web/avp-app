@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageCircle, Send, X } from "lucide-react";
+import Image from "next/image";
 
 type Message = {
   id: string;
@@ -23,8 +24,8 @@ type ChatbotProps = {
   initialMessages?: Message[];
   position?: "bottom-right" | "bottom-left";
   initialQuery?: string;
-  initialResults?: any[]; // Accept initial results
-  onResults?: (results: any[]) => void; // NEW: callback for refined results
+  initialResults?: Document[]; // Accept initial results
+  onResults?: (results: Document[]) => void; // NEW: callback for refined results
 };
 
 export default function Chatbot({
@@ -357,10 +358,12 @@ export default function Chatbot({
               <div className="flex items-center flex-1">
                 {botAvatar ? (
                   <div className="w-8 h-8 rounded-full overflow-hidden mr-3 border-2 border-white/30 shadow-sm">
-                    <img
+                    <Image
                       src={botAvatar || "/placeholder.svg"}
                       alt={`${botName} avatar`}
                       className="w-full h-full object-cover"
+                      width={32} // Specify width
+                      height={32} // Specify height
                     />
                   </div>
                 ) : (

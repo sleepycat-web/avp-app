@@ -2,9 +2,8 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { FileSearch, Upload, Menu, X, Home, BarChart3, Settings, HelpCircle, LogOut, User } from "lucide-react"
+ import { Button } from "@/components/ui/button"
+import { FileSearch,  Menu, X,  Settings, HelpCircle, LogOut, User } from "lucide-react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,13 +12,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Badge } from "@/components/ui/badge"
-import { useMobile } from "@/hooks/use-mobile"
+ import { useMobile } from "@/hooks/use-mobile"
 import { ThemeToggle } from "@/components/theme-toggle"
 
 export function MainNav() {
-  const pathname = usePathname()
-  const isMobile = useMobile()
+   const isMobile = useMobile()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
@@ -33,9 +30,7 @@ export function MainNav() {
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
-  const isActive = (path: string) => {
-    return pathname === path || pathname?.startsWith(`${path}/`)
-  }
+ 
 
  
 

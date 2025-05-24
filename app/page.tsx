@@ -13,26 +13,38 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Search, Filter, Loader2 } from "lucide-react";
 import { MainNav } from "@/components/main-nav";
+
+// Define a type for search results, replace '...' with actual properties
+interface SearchResult {
+  _id?: { $oid: string };
+  name?: string;
+  title?: string;
+  filePath?: string;
+  collection?: string;
+  categories?: string[];
+  summary?: string;
+  createdAt?: string;
+  supabase?: { url?: string };
+  // ... other properties
+}
 
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentSearchQuery, setCurrentSearchQuery] = useState(""); // Store the query that was actually searched
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [filteredResults, setFilteredResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [filteredResults, setFilteredResults] = useState<SearchResult[]>([]);
   const [chatbotQuery, setChatbotQuery] = useState<string>("");
   const [selectedDocumentType, setSelectedDocumentType] =
     useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("newest");
 
   // Add a handler to receive results from chatbot refinement
-  const handleChatbotResults = (results: any[]) => {
+  const handleChatbotResults = (results: SearchResult[]) => {
     setSearchResults(results);
     setShowResults(true);
     setChatbotQuery(""); // Unmount chatbot after showing results
@@ -57,7 +69,7 @@ export default function SearchPage() {
       console.log("Search Results:", data.results); // Log the actual results array
       // Log each result to see the structure
       if (data.results && Array.isArray(data.results)) {
-        data.results.forEach((result: any, index: number) => {
+        data.results.forEach((result: SearchResult, index: number) => {
           console.log(`Result ${index}:`, {
             name: result.name,
             supabase: result.supabase,
@@ -103,7 +115,7 @@ export default function SearchPage() {
     setFilteredResults(filtered);
   }, [searchResults, selectedDocumentType, sortOrder]);
 
-  const getDocumentTitle = (result: any) => {
+  const getDocumentTitle = (result: SearchResult) => {
     // Always use the document name from database
     if (result.name) return result.name;
     if (result.title) return result.title;
@@ -119,7 +131,7 @@ export default function SearchPage() {
     console.error("Document missing required name field:", result);
     return "Error: Document name not found";
   };
-  const getDocumentType = (result: any) => {
+  const getDocumentType = (result: SearchResult) => {
     // Primary: Use the collection field from database
     if (result.collection) {
       const collection = result.collection.toLowerCase();
@@ -284,106 +296,109 @@ export default function SearchPage() {
                   </h3>
                 </div>{" "}
                 <div className="space-y-4">
-                  {filteredResults.map((result: any, index: number) => {
-                    // Debug logging for each result
-                    console.log(`Rendering result ${index}:`, {
-                      name: result.name,
-                      supabase: result.supabase,
-                      hasSupabaseUrl: !!result.supabase?.url,
-                      fullResult: result,
-                    });
+                  {filteredResults.map(
+                    (result: SearchResult, index: number) => {
+                      // Debug logging for each result
+                      console.log(`Rendering result ${index}:`, {
+                        name: result.name,
+                        supabase: result.supabase,
+                        hasSupabaseUrl: !!result.supabase?.url,
+                        fullResult: result,
+                      });
 
-                    return (
-                      <Card
-                        key={result._id?.$oid || index}
-                        className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group overflow-hidden"
-                      >
-                        <CardHeader className="pb-2">
-                          <div className="flex items-start justify-between gap-4">
-                            <div className="flex-1 min-w-0 overflow-hidden">
-                              <div className="flex items-start gap-2 mb-2">
-                                <Badge className="bg-blue-100   text-black text-xs flex-shrink-0">
-                                  {getDocumentType(result)}
-                                </Badge>
-                              </div>{" "}
-                              <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words leading-relaxed whitespace-normal mb-3 overflow-x-auto max-w-full">
-                                {getDocumentTitle(result)}
-                              </CardTitle>
-                              <div className="mt-2 space-y-2 text-sm text-gray-500">
-                                {result.summary && (
-                                  <p className="line-clamp-3 break-words leading-relaxed">
-                                    {result.summary.length > 200
-                                      ? result.summary.substring(0, 200) + "..."
-                                      : result.summary}
-                                  </p>
-                                )}
-                                {result.categories &&
-                                  result.categories.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-2">
-                                      {result.categories
-                                        .slice(0, 3)
-                                        .map(
-                                          (category: string, idx: number) => (
-                                            <Badge
-                                              key={idx}
-                                              variant="secondary"
-                                              className="text-xs"
-                                            >
-                                              {category}
-                                            </Badge>
-                                          )
-                                        )}
-                                    </div>
+                      return (
+                        <Card
+                          key={result._id?.$oid || index}
+                          className="border-blue-100 dark:border-blue-900/50 dark:bg-gray-900 transition-all hover:shadow-md hover:border-blue-200 dark:hover:border-blue-800 group overflow-hidden"
+                        >
+                          <CardHeader className="pb-2">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 min-w-0 overflow-hidden">
+                                <div className="flex items-start gap-2 mb-2">
+                                  <Badge className="bg-blue-100   text-black text-xs flex-shrink-0">
+                                    {getDocumentType(result)}
+                                  </Badge>
+                                </div>{" "}
+                                <CardTitle className="text-lg font-medium text-blue-700 hover:text-blue-800 transition-colors group-hover:underline break-words leading-relaxed whitespace-normal mb-3 overflow-x-auto max-w-full">
+                                  {getDocumentTitle(result)}
+                                </CardTitle>
+                                <div className="mt-2 space-y-2 text-sm text-gray-500">
+                                  {result.summary && (
+                                    <p className="line-clamp-3 break-words leading-relaxed">
+                                      {result.summary.length > 200
+                                        ? result.summary.substring(0, 200) +
+                                          "..."
+                                        : result.summary}
+                                    </p>
                                   )}
-                                <p className="break-words">
-                                  Created At:{" "}
-                                  {result.createdAt
-                                    ? new Date(
-                                        result.createdAt
-                                      ).toLocaleDateString()
-                                    : "Not specified"}
-                                </p>
+                                  {result.categories &&
+                                    result.categories.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-2">
+                                        {result.categories
+                                          .slice(0, 3)
+                                          .map(
+                                            (category: string, idx: number) => (
+                                              <Badge
+                                                key={idx}
+                                                variant="secondary"
+                                                className="text-xs"
+                                              >
+                                                {category}
+                                              </Badge>
+                                            )
+                                          )}
+                                      </div>
+                                    )}
+                                  <p className="break-words">
+                                    Created At:{" "}
+                                    {result.createdAt
+                                      ? new Date(
+                                          result.createdAt
+                                        ).toLocaleDateString()
+                                      : "Not specified"}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex-shrink-0">
+                                {result.supabase?.url ? (
+                                  <Button
+                                    className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
+                                    onClick={async () => {
+                                      // Debug log to see what's available
+                                      console.log("Document download data:", {
+                                        supabaseUrl: result.supabase?.url,
+                                        name: result.name,
+                                      });
+
+                                      // Use supabase.url directly
+                                      if (result.supabase?.url) {
+                                        window.open(
+                                          result.supabase.url,
+                                          "_blank"
+                                        );
+                                      } else {
+                                        alert(
+                                          "Sorry, file download is not available for this document."
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    Download
+                                  </Button>
+                                ) : (
+                                  <div className="h-10 px-4 flex items-center">
+                                    <span className="text-gray-400 text-sm italic whitespace-nowrap">
+                                      File not available
+                                    </span>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            <div className="flex-shrink-0">
-                              {result.supabase?.url ? (
-                                <Button
-                                  className="h-10 px-4 bg-blue-600 text-white hover:bg-blue-700 whitespace-nowrap"
-                                  onClick={async () => {
-                                    // Debug log to see what's available
-                                    console.log("Document download data:", {
-                                      supabaseUrl: result.supabase?.url,
-                                      name: result.name,
-                                    });
-
-                                    // Use supabase.url directly
-                                    if (result.supabase?.url) {
-                                      window.open(
-                                        result.supabase.url,
-                                        "_blank"
-                                      );
-                                    } else {
-                                      alert(
-                                        "Sorry, file download is not available for this document."
-                                      );
-                                    }
-                                  }}
-                                >
-                                  Download
-                                </Button>
-                              ) : (
-                                <div className="h-10 px-4 flex items-center">
-                                  <span className="text-gray-400 text-sm italic whitespace-nowrap">
-                                    File not available
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </CardHeader>
-                      </Card>
-                    );
-                  })}
+                          </CardHeader>
+                        </Card>
+                      );
+                    }
+                  )}
                 </div>
               </div>
             </div>

@@ -1,4 +1,4 @@
-import { MongoClient, Db } from "mongodb";
+import { MongoClient } from "mongodb";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -25,17 +25,8 @@ if (process.env.NODE_ENV === "development") {
   clientPromise = client.connect();
 }
 
-let cachedClient: MongoClient | null = null;
-let cachedDb: Db | null = null;
-
 export async function connectToDatabase() {
-  if (!cachedClient || !cachedDb) {
-    const uri = process.env.MONGODB_URI!;
-    const client = new MongoClient(uri);
-    await client.connect(); // ← ensure the client is connected
-    const db = client.db(process.env.MONGODB_DB);
-    cachedClient = client;
-    cachedDb = db;
-  }
-  return { client: cachedClient, db: cachedDb! };
+  const client = await clientPromise;
+  const db = client.db("DocumentMap"); // Replace with your actual database name
+  return { client, db };
 }
