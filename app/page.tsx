@@ -324,11 +324,8 @@ export default function SearchPage() {
                                 </CardTitle>
                                 <div className="mt-2 space-y-2 text-sm text-gray-500">
                                   {result.summary && (
-                                    <p className="line-clamp-3 break-words leading-relaxed">
-                                      {result.summary.length > 200
-                                        ? result.summary.substring(0, 200) +
-                                          "..."
-                                        : result.summary}
+                                    <p className="break-words leading-relaxed">
+                                      {result.summary}
                                     </p>
                                   )}
                                   {result.categories &&
