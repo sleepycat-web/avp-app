@@ -42,6 +42,7 @@ export default function SearchPage() {
   const [selectedDocumentType, setSelectedDocumentType] =
     useState<string>("all");
   const [sortOrder, setSortOrder] = useState<string>("newest");
+  const [selectedYear, setSelectedYear] = useState<number>(2025);
 
   // Add a handler to receive results from chatbot refinement
   const handleChatbotResults = (results: SearchResult[]) => {
@@ -67,19 +68,14 @@ export default function SearchPage() {
         body: JSON.stringify({ query }),
       });
       const data = await res.json();
-      console.log("API Response:", data); // Log the response received after query
-      console.log("Search Results:", data.results); // Log the actual results array
-      // Log each result to see the structure
-      if (data.results && Array.isArray(data.results)) {
-        data.results.forEach((result: SearchResult, index: number) => {
-          console.log(`Result ${index}:`, {
-            name: result.name,
-            supabase: result.supabase,
-            hasSupabaseUrl: !!result.supabase?.url,
-          });
-        });
-      }
-      setSearchResults(Array.isArray(data.results) ? data.results : []);
+      // detect pure-count responses and zero-out
+      const raw = Array.isArray(data.results) ? data.results : [];
+      const results =
+        raw.every((r: any) => typeof (r as any).count === "number") &&
+        raw.length
+          ? []
+          : raw;
+      setSearchResults(results);
       setShowResults(true);
       setChatbotQuery(query);
     } catch (e) {
@@ -100,6 +96,12 @@ export default function SearchPage() {
   // Update filtered results when search results, filters, or sort order change
   useEffect(() => {
     let filtered = [...searchResults];
+
+    // year filter
+    filtered = filtered.filter((r: SearchResult) => {
+      const yr = r.createdAt ? new Date(r.createdAt).getFullYear() : NaN;
+      return yr === selectedYear;
+    });
 
     // Apply document type filter
     if (selectedDocumentType && selectedDocumentType !== "all") {
@@ -122,7 +124,7 @@ export default function SearchPage() {
     });
 
     setFilteredResults(filtered);
-  }, [searchResults, selectedDocumentType, sortOrder]);
+  }, [searchResults, selectedDocumentType, sortOrder, selectedYear]);
 
   const getDocumentTitle = (result: SearchResult) => {
     // Always use the document name from database
@@ -271,6 +273,27 @@ export default function SearchPage() {
                             <SelectItem value="document">Document</SelectItem>
                           </SelectContent>
                         </Select>
+                      </div>
+
+                      {/* Year selector */}
+                      <div className="space-y-4 px-4">
+                        <Label className="text-sm font-medium">
+                          Year: {selectedYear}
+                        </Label>
+                        <div className="w-full">
+                          <input
+                            type="range"
+                            min={2010}
+                            max={2025}
+                            value={selectedYear}
+                            onChange={(e) => setSelectedYear(+e.target.value)}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                          />
+                          <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>2010</span>
+                            <span>2025</span>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="space-y-2">
