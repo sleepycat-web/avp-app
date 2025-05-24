@@ -102,7 +102,6 @@ export default function Chatbot({
         setIsRefining(true); // Enable refinement mode
       }
     }
-    // eslint-disable-next-line
   }, [initialQuery, initialResults]);
 
   const toggleChat = () => {
@@ -148,7 +147,7 @@ export default function Chatbot({
       let botText = "";
       if (data.results) {
         const titles = data.results
-          .map((d: any) => d.title || d.name || "Untitled")
+          .map((d: Document) => d.title || d.name || "Untitled")
           .join("\n");
         botText = `Found ${data.results.length} documents:\n${titles}`;
         if (onResults) onResults(data.results);
@@ -168,7 +167,7 @@ export default function Chatbot({
       };
       setMessages((prev) => [...prev, botMessage]);
       setIsLoading(false);
-    } catch (e) {
+    } catch {
       const errMsg: Message = {
         id: Date.now().toString(),
         text: "Failed to fetch suggestions. Please try again later.",

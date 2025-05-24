@@ -68,13 +68,22 @@ export default function SearchPage() {
         body: JSON.stringify({ query }),
       });
       const data = await res.json();
-      // detect pure-count responses and zero-out
+
+      // Type the raw results properly
       const raw = Array.isArray(data.results) ? data.results : [];
+
+      // Check if all results are count-only responses and filter them out
       const results =
-        raw.every((r: any) => typeof (r as any).count === "number") &&
-        raw.length
+        raw.every(
+          (r: unknown) =>
+            typeof r === "object" &&
+            r !== null &&
+            "count" in r &&
+            typeof (r as { count: unknown }).count === "number"
+        ) && raw.length > 0
           ? []
-          : raw;
+          : (raw as SearchResult[]);
+
       setSearchResults(results);
       setShowResults(true);
       setChatbotQuery(query);

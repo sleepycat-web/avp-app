@@ -12,7 +12,7 @@ interface GeminiContentResponse {
 // Helper to call Gemini API with retry logic
 async function callGeminiAPI(
   endpoint: string,
-  payload: Record<string, any>,
+  payload: Record<string, unknown>,
   retries = 2
 ): Promise<GeminiContentResponse> {
   const KEY = process.env.GEMINI_API_KEY;
@@ -69,11 +69,9 @@ export async function POST(request: NextRequest) {
       "Here are the suggested queries:\n" +
       suggestions.map((s) => `* ${s}`).join("\n");
     return NextResponse.json({ suggestions, message: messageText });
-  } catch (error: any) {
-    console.error("Advice API error:", error);
-    return NextResponse.json(
-      { error: error.message || "Internal error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const errMsg = error instanceof Error ? error.message : "Internal error";
+    console.error("Advice API error:", errMsg);
+    return NextResponse.json({ error: errMsg }, { status: 500 });
   }
 }
